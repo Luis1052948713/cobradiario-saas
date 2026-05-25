@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 
 import 'core/database/database_helper.dart';
 import 'core/navigation/app_route_observer.dart';
+import 'core/services/supabase_service.dart';
 import 'modules/auth/pages/login_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  final isSupabaseConnected =
+      await SupabaseService.initializeIfConfigured();
+  debugPrint('Supabase habilitado: $isSupabaseConnected');
 
   final isDatabaseConnected = await DatabaseHelper.instance.testConnection();
   debugPrint('SQLite conectado: $isDatabaseConnected');
