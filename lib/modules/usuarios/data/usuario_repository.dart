@@ -20,9 +20,32 @@ class UsuarioRepository {
 
   Future<int> crear(UsuarioModel usuario) async {
     if (_usaSupabase) {
-      throw StateError(
-        'Para crear usuarios en modo SaaS se necesita una Edge Function con permisos admin.',
+      final response = await SupabaseService.requireClient.functions.invoke(
+        'crear-usuario-empresa',
+        body: {
+          'nombre': usuario.nombre,
+          'email': usuario.usuario,
+          'usuario': usuario.usuario,
+          'password': usuario.contrasena,
+          'rol': usuario.rol,
+          'estado': usuario.estado,
+        },
       );
+      final data = response.data;
+      if (data is Map && data['error'] != null) {
+        throw StateError(data['error'] as String);
+      }
+      if (data is! Map || data['profile'] is! Map) {
+        throw StateError('La funcion no devolvio el perfil creado.');
+      }
+      final created = _fromPerfil(Map<String, dynamic>.from(data['profile']));
+      await auditoriaRepository.registrar(
+        accion: 'crear',
+        modulo: 'usuarios',
+        descripcion: 'Usuario creado: ${usuario.usuario} rol=${usuario.rol}',
+        referenciaId: created.id,
+      );
+      return created.id ?? 0;
     }
 
     final db = await _db;

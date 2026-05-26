@@ -632,13 +632,16 @@ class _UsuarioFormSheetState extends State<_UsuarioFormSheet> {
     if (!_formKey.currentState!.validate()) return;
 
     final actual = widget.usuario;
+    final contrasena = _contrasenaController.text.isEmpty && actual != null
+        ? actual.contrasena
+        : _contrasenaController.text;
     Navigator.pop(
       context,
       UsuarioModel(
         id: actual?.id,
         nombre: _nombreController.text.trim(),
         usuario: _usuarioController.text.trim(),
-        contrasena: _contrasenaController.text,
+        contrasena: contrasena,
         rol: _rol,
         estado: _estado,
         saldoDisponible: actual?.saldoDisponible ?? 0,
@@ -688,13 +691,16 @@ class _UsuarioFormSheetState extends State<_UsuarioFormSheet> {
                 controller: _usuarioController,
                 textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
-                  labelText: 'Usuario de acceso',
-                  prefixIcon: Icon(Icons.account_circle),
+                  labelText: 'Correo electronico',
+                  prefixIcon: Icon(Icons.email),
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return 'El usuario es obligatorio';
+                    return 'El correo es obligatorio';
+                  }
+                  if (!value.contains('@')) {
+                    return 'Ingresa un correo valido';
                   }
                   return null;
                 },
@@ -704,16 +710,16 @@ class _UsuarioFormSheetState extends State<_UsuarioFormSheet> {
                 controller: _contrasenaController,
                 obscureText: true,
                 decoration: const InputDecoration(
-                  labelText: 'Contraseña',
+                  labelText: 'Contrasena',
                   prefixIcon: Icon(Icons.lock),
                   border: OutlineInputBorder(),
                 ),
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'La contraseña es obligatoria';
+                  if (!editando && (value == null || value.isEmpty)) {
+                    return 'La contrasena es obligatoria';
                   }
-                  if (value.length < 4) {
-                    return 'Usa al menos 4 caracteres';
+                  if (value != null && value.isNotEmpty && value.length < 6) {
+                    return 'Usa al menos 6 caracteres';
                   }
                   return null;
                 },
