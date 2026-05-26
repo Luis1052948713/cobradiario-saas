@@ -97,6 +97,61 @@ class AuthService {
     }
   }
 
+  Future<AuthProfile> registerCompanyAdmin({
+    required String companyName,
+    required String adminName,
+    required String email,
+    required String password,
+    String? username,
+    String? companyPhone,
+    String? companyIdentification,
+  }) async {
+    try {
+      final response = await _client.auth.signUp(
+        email: email.trim(),
+        password: password,
+        data: {
+          'nombre': adminName.trim(),
+          'empresa': companyName.trim(),
+        },
+      );
+
+      final user = response.user;
+      if (user == null) {
+        throw const AuthFailure('No se pudo crear el usuario.');
+      }
+
+      if (response.session == null) {
+        throw const AuthFailure(
+          'Usuario creado. Revisa tu correo para confirmar la cuenta antes de ingresar.',
+        );
+      }
+
+      await _client.rpc(
+        'registrar_empresa_admin',
+        params: {
+          'p_empresa_nombre': companyName.trim(),
+          'p_admin_nombre': adminName.trim(),
+          'p_usuario': username?.trim(),
+          'p_empresa_telefono': companyPhone?.trim(),
+          'p_empresa_identificacion': companyIdentification?.trim(),
+        },
+      );
+
+      final profile = await _loadProfileForUser(user);
+      SessionManager.instance.iniciarSesion(profile);
+      return profile;
+    } on AuthFailure {
+      rethrow;
+    } on AuthException catch (error) {
+      throw AuthFailure(error.message);
+    } on PostgrestException catch (error) {
+      throw AuthFailure(error.message);
+    } catch (error) {
+      throw AuthFailure('No se pudo registrar la empresa: $error');
+    }
+  }
+
   Future<void> logout() async {
     if (SupabaseService.isInitialized) {
       await SupabaseService.requireClient.auth.signOut();

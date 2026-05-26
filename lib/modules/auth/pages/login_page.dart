@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../dashboard/pages/dashboard_page.dart';
+import 'register_company_page.dart';
 import '../services/auth_service.dart';
 
 class LoginPage extends StatefulWidget {
@@ -199,6 +200,22 @@ class _LoginPageState extends State<LoginPage> {
                           style: const TextStyle(fontSize: 18),
                         ),
                       ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton.icon(
+                      onPressed: _cargando
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const RegisterCompanyPage(),
+                                ),
+                              );
+                            },
+                      icon: const Icon(Icons.business),
+                      label: const Text('Crear empresa'),
                     ),
                     const SizedBox(height: 16),
                     Text(
