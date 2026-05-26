@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../core/constants/app_constants.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
+import '../../../core/services/supabase_service.dart';
 import '../../../core/session/session_manager.dart';
 import '../../auditoria/data/auditoria_repository.dart';
 
@@ -55,6 +58,16 @@ class SuscripcionRepository {
   final AuditoriaRepository auditoriaRepository;
 
   Future<SuscripcionResumen> obtenerResumen() async {
+    final perfil = SessionManager.instance.perfilActual;
+    if (SupabaseService.isInitialized && perfil?.companyId != null) {
+      try {
+        return _obtenerResumenOnline(perfil!.companyId!);
+      } catch (error) {
+        debugPrint('No se pudo cargar suscripcion online: $error');
+        if (kIsWeb) return _trialOnlineFallback();
+      }
+    }
+
     final db = await DatabaseHelper.instance.database;
     final empresaId = await _empresaActivaId();
     final rows = await db.rawQuery(
@@ -102,6 +115,68 @@ class SuscripcionRepository {
 
   Future<bool> licenciaActiva() async {
     return (await obtenerResumen()).activa;
+  }
+
+  Future<SuscripcionResumen> _obtenerResumenOnline(String empresaId) async {
+    final row = await SupabaseService.requireClient
+        .from('suscripciones')
+        .select('''
+          id,
+          estado,
+          proveedor,
+          referencia_pago,
+          monto,
+          fecha_inicio,
+          fecha_fin,
+          observacion,
+          planes(codigo, nombre),
+          empresas(nombre)
+        ''')
+        .eq('empresa_id', empresaId)
+        .order('updated_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+
+    if (row == null) return _trialOnlineFallback();
+
+    final plan = row['planes'] as Map<String, dynamic>?;
+    final empresa = row['empresas'] as Map<String, dynamic>?;
+    final now = DateTime.now();
+
+    return SuscripcionResumen(
+      empresaId: 0,
+      empresaNombre: empresa?['nombre'] as String? ?? 'Empresa',
+      suscripcionId: null,
+      plan: plan?['codigo'] as String? ?? SuscripcionPlanes.pro,
+      estado: row['estado'] as String? ?? SuscripcionEstados.prueba,
+      proveedor: row['proveedor'] as String? ?? SuscripcionProveedores.manual,
+      referenciaPago: row['referencia_pago'] as String?,
+      monto: (row['monto'] as num?)?.toDouble() ?? 0,
+      fechaInicio: row['fecha_inicio'] == null
+          ? now
+          : DateTime.parse(row['fecha_inicio'] as String),
+      fechaFin: row['fecha_fin'] == null
+          ? now.add(const Duration(days: 15))
+          : DateTime.parse(row['fecha_fin'] as String),
+      observacion: row['observacion'] as String?,
+    );
+  }
+
+  SuscripcionResumen _trialOnlineFallback() {
+    final now = DateTime.now();
+    return SuscripcionResumen(
+      empresaId: 0,
+      empresaNombre: 'Empresa',
+      suscripcionId: null,
+      plan: SuscripcionPlanes.pro,
+      estado: SuscripcionEstados.prueba,
+      proveedor: SuscripcionProveedores.manual,
+      referenciaPago: 'ONLINE-TRIAL',
+      monto: 0,
+      fechaInicio: now,
+      fechaFin: now.add(const Duration(days: 15)),
+      observacion: 'Licencia temporal online',
+    );
   }
 
   Future<int> registrarPagoManual({

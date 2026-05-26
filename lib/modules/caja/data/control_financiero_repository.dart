@@ -3,6 +3,8 @@ import 'package:sqflite/sqflite.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
+import '../../../core/services/online_id_mapper.dart';
+import '../../../core/services/supabase_service.dart';
 import '../../../core/session/session_manager.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../auditoria/data/auditoria_repository.dart';
@@ -98,6 +100,17 @@ class ControlFinancieroRepository {
   Future<Database> get _db => DatabaseHelper.instance.database;
 
   Future<double> saldoDisponible(int cobradorId) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(cobradorId);
+      if (uuid == null) return 0;
+      final row = await SupabaseService.requireClient
+          .from('perfiles')
+          .select('saldo_disponible')
+          .eq('id', uuid)
+          .maybeSingle();
+      return (row?['saldo_disponible'] as num?)?.toDouble() ?? 0;
+    }
+
     final db = await _db;
     final rows = await db.query(
       DatabaseTables.usuarios,
@@ -111,6 +124,8 @@ class ControlFinancieroRepository {
   }
 
   Future<CapitalResumen> resumenCapital() async {
+    if (_usaSupabase) return _capitalResumenOnline();
+
     final db = await _db;
     final capital = await _capitalActivoEn(db);
     final capitalId = capital?['id'] as int?;
@@ -197,6 +212,8 @@ class ControlFinancieroRepository {
   }
 
   Future<List<Map<String, Object?>>> movimientosCapital() async {
+    if (_usaSupabase) return [];
+
     final db = await _db;
     return db.rawQuery('''
       SELECT m.*, u.nombre AS usuario_nombre
@@ -1027,6 +1044,23 @@ class ControlFinancieroRepository {
   }
 
   Future<List<CajaResumenDiario>> resumenesHoy() async {
+    if (_usaSupabase) {
+      final cobradores = await SupabaseService.requireClient
+          .from('perfiles')
+          .select('id, nombre, saldo_disponible')
+          .eq('rol', AppRoles.cobrador)
+          .eq('estado', AppEstados.activo);
+      return cobradores.map<CajaResumenDiario>((row) {
+        final id = OnlineIdMapper.instance.localIdFor(row['id'] as String);
+        return _emptyResumenDiario(
+          cobradorId: id,
+          nombre: row['nombre'] as String? ?? 'Cobrador',
+          saldoDisponible:
+              (row['saldo_disponible'] as num?)?.toDouble() ?? 0,
+        );
+      }).toList();
+    }
+
     final db = await _db;
     final cobradores = await db.query(
       DatabaseTables.usuarios,
@@ -1042,6 +1076,23 @@ class ControlFinancieroRepository {
   }
 
   Future<CajaResumenDiario> resumenDiario(int cobradorId) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(cobradorId);
+      if (uuid == null) {
+        return _emptyResumenDiario(cobradorId: cobradorId, nombre: 'Cobrador');
+      }
+      final row = await SupabaseService.requireClient
+          .from('perfiles')
+          .select('nombre, saldo_disponible')
+          .eq('id', uuid)
+          .maybeSingle();
+      return _emptyResumenDiario(
+        cobradorId: cobradorId,
+        nombre: row?['nombre'] as String? ?? 'Cobrador',
+        saldoDisponible: (row?['saldo_disponible'] as num?)?.toDouble() ?? 0,
+      );
+    }
+
     final db = await _db;
     final cajaRows = await db.query(
       DatabaseTables.cajas,
@@ -1125,6 +1176,8 @@ class ControlFinancieroRepository {
   }
 
   Future<List<Map<String, Object?>>> solicitudesPendientes() async {
+    if (_usaSupabase) return [];
+
     final db = await _db;
     return db.rawQuery(
       '''
@@ -1139,6 +1192,8 @@ class ControlFinancieroRepository {
   }
 
   Future<List<Map<String, Object?>>> cierresRecientes() async {
+    if (_usaSupabase) return [];
+
     final db = await _db;
     return db.rawQuery('''
       SELECT c.*, u.nombre AS cobrador_nombre
@@ -1150,6 +1205,29 @@ class ControlFinancieroRepository {
   }
 
   Future<List<Map<String, Object?>>> cajasRecientes() async {
+    if (_usaSupabase) {
+      final rows = await SupabaseService.requireClient
+          .from('cajas')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(80);
+      return rows.map<Map<String, Object?>>((row) {
+        return {
+          'id': OnlineIdMapper.instance.localIdFor(row['id'] as String),
+          'cobrador_id': OnlineIdMapper.instance.localIdFor(
+            row['cobrador_id'] as String,
+          ),
+          'cobrador_nombre': 'Cobrador',
+          'estado': row['estado'],
+          'saldo_inicial': row['saldo_inicial'],
+          'saldo_actual': row['saldo_actual'],
+          'fecha': row['fecha'],
+          'hora_apertura': row['hora_apertura'],
+          'hora_cierre': row['hora_cierre'],
+        };
+      }).toList();
+    }
+
     final db = await _db;
     return db.rawQuery('''
       SELECT cj.*, u.nombre AS cobrador_nombre, a.nombre AS admin_nombre
@@ -1162,6 +1240,8 @@ class ControlFinancieroRepository {
   }
 
   Future<List<Map<String, Object?>>> movimientos({int? cobradorId}) async {
+    if (_usaSupabase) return [];
+
     final db = await _db;
     return db.rawQuery('''
       SELECT m.*, u.nombre AS usuario_nombre, c.nombre AS cliente_nombre
@@ -1175,6 +1255,28 @@ class ControlFinancieroRepository {
   }
 
   Future<List<Map<String, Object?>>> gastos({int? cobradorId}) async {
+    if (_usaSupabase) {
+      dynamic query = SupabaseService.requireClient
+          .from('gastos')
+          .select();
+      final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
+      if (cobradorUuid != null) query = query.eq('cobrador_id', cobradorUuid);
+      final rows = await query.order('fecha_hora', ascending: false);
+      return rows.map<Map<String, Object?>>((row) {
+        return {
+          'id': OnlineIdMapper.instance.localIdFor(row['id'] as String),
+          'cobrador_id': OnlineIdMapper.instance.localIdFor(
+            row['cobrador_id'] as String,
+          ),
+          'cobrador_nombre': 'Cobrador',
+          'tipo': row['tipo'],
+          'valor': row['valor'],
+          'descripcion': row['descripcion'],
+          'fecha_hora': row['fecha_hora'],
+        };
+      }).toList();
+    }
+
     final db = await _db;
     return db.rawQuery('''
       SELECT g.*, u.nombre AS cobrador_nombre
@@ -1587,6 +1689,17 @@ class ControlFinancieroRepository {
   }
 
   Future<String> _nombreUsuario(int usuarioId) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(usuarioId);
+      if (uuid == null) return 'Cobrador #$usuarioId';
+      final row = await SupabaseService.requireClient
+          .from('perfiles')
+          .select('nombre')
+          .eq('id', uuid)
+          .maybeSingle();
+      return row?['nombre'] as String? ?? 'Cobrador #$usuarioId';
+    }
+
     final db = await _db;
     final rows = await db.query(
       DatabaseTables.usuarios,
@@ -1597,6 +1710,51 @@ class ControlFinancieroRepository {
     );
     if (rows.isEmpty) return 'Cobrador #$usuarioId';
     return rows.first['nombre'] as String;
+  }
+
+  bool get _usaSupabase {
+    return SupabaseService.isInitialized &&
+        SessionManager.instance.perfilActual?.companyId != null;
+  }
+
+  CapitalResumen _capitalResumenOnline() {
+    return const CapitalResumen(
+      capitalId: null,
+      capitalInicial: 0,
+      capitalDisponible: 0,
+      saldoOperativoCobradores: 0,
+      capitalPrestado: 0,
+      dineroEnCalle: 0,
+      dineroRecaudado: 0,
+      ganancias: 0,
+      gastos: 0,
+      saldoDistribuidoHoy: 0,
+      totalPrestadoHoy: 0,
+      totalRecaudadoHoy: 0,
+      gastosHoy: 0,
+    );
+  }
+
+  CajaResumenDiario _emptyResumenDiario({
+    required int cobradorId,
+    required String nombre,
+    double saldoDisponible = 0,
+  }) {
+    return CajaResumenDiario(
+      cobradorId: cobradorId,
+      nombre: nombre,
+      estadoCaja: CajaEstados.cerrada,
+      saldoInicial: 0,
+      saldoDisponible: saldoDisponible,
+      totalPrestado: 0,
+      totalRecaudado: 0,
+      gastos: 0,
+      cantidadPrestamos: 0,
+      cantidadCobros: 0,
+      clientesVisitados: 0,
+      cierreRealizado: false,
+      cierrePendiente: false,
+    );
   }
 }
 

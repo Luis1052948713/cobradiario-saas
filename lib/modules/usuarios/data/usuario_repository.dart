@@ -3,6 +3,9 @@ import 'package:sqflite/sqflite.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
+import '../../../core/services/online_id_mapper.dart';
+import '../../../core/services/supabase_service.dart';
+import '../../../core/session/session_manager.dart';
 import '../../auditoria/data/auditoria_repository.dart';
 import '../models/usuario_model.dart';
 
@@ -16,6 +19,12 @@ class UsuarioRepository {
   Future<Database> get _db => DatabaseHelper.instance.database;
 
   Future<int> crear(UsuarioModel usuario) async {
+    if (_usaSupabase) {
+      throw StateError(
+        'Para crear usuarios en modo SaaS se necesita una Edge Function con permisos admin.',
+      );
+    }
+
     final db = await _db;
     final id = await db.insert(DatabaseTables.usuarios, usuario.toMap());
     await auditoriaRepository.registrar(
@@ -28,6 +37,8 @@ class UsuarioRepository {
   }
 
   Future<List<UsuarioModel>> listar() async {
+    if (_usaSupabase) return _listarOnline();
+
     final db = await _db;
     final rows = await db.query(DatabaseTables.usuarios, orderBy: 'nombre ASC');
 
@@ -35,6 +46,13 @@ class UsuarioRepository {
   }
 
   Future<List<UsuarioModel>> listarCobradoresActivos() async {
+    if (_usaSupabase) {
+      final usuarios = await _listarOnline();
+      return usuarios
+          .where((u) => u.rol == AppRoles.cobrador && u.estaActivo)
+          .toList();
+    }
+
     final db = await _db;
     final rows = await db.query(
       DatabaseTables.usuarios,
@@ -47,6 +65,18 @@ class UsuarioRepository {
   }
 
   Future<UsuarioModel?> buscarPorId(int id) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(id);
+      if (uuid == null) return null;
+      final row = await SupabaseService.requireClient
+          .from('perfiles')
+          .select()
+          .eq('id', uuid)
+          .maybeSingle();
+      if (row == null) return null;
+      return _fromPerfil(row);
+    }
+
     final db = await _db;
     final rows = await db.query(
       DatabaseTables.usuarios,
@@ -60,6 +90,16 @@ class UsuarioRepository {
   }
 
   Future<UsuarioModel?> buscarPorUsuario(String usuario) async {
+    if (_usaSupabase) {
+      final row = await SupabaseService.requireClient
+          .from('perfiles')
+          .select()
+          .eq('usuario', usuario.trim())
+          .maybeSingle();
+      if (row == null) return null;
+      return _fromPerfil(row);
+    }
+
     final db = await _db;
     final rows = await db.query(
       DatabaseTables.usuarios,
@@ -100,6 +140,8 @@ class UsuarioRepository {
   }
 
   Future<void> asegurarSuperadmin() async {
+    if (_usaSupabase) return;
+
     final db = await _db;
     final now = DateTime.now().toIso8601String();
     final rows = await db.query(
@@ -174,6 +216,26 @@ class UsuarioRepository {
   }
 
   Future<int> actualizar(UsuarioModel usuario) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(usuario.id);
+      if (uuid == null) throw StateError('Usuario online no encontrado.');
+      await SupabaseService.requireClient.from('perfiles').update({
+        'nombre': usuario.nombre,
+        'usuario': usuario.usuario,
+        'rol': usuario.rol,
+        'estado': usuario.estado,
+        'saldo_disponible': usuario.saldoDisponible,
+      }).eq('id', uuid);
+      await auditoriaRepository.registrar(
+        accion: 'actualizar',
+        modulo: 'usuarios',
+        descripcion:
+            'Usuario actualizado: ${usuario.usuario} rol=${usuario.rol}',
+        referenciaId: usuario.id,
+      );
+      return 1;
+    }
+
     final db = await _db;
     final updated = await db.update(
       DatabaseTables.usuarios,
@@ -191,6 +253,21 @@ class UsuarioRepository {
   }
 
   Future<int> cambiarEstado(int id, String estado) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(id);
+      if (uuid == null) throw StateError('Usuario online no encontrado.');
+      await SupabaseService.requireClient
+          .from('perfiles')
+          .update({'estado': estado}).eq('id', uuid);
+      await auditoriaRepository.registrar(
+        accion: 'cambiar_estado',
+        modulo: 'usuarios',
+        descripcion: 'Estado de usuario id=$id cambiado a $estado',
+        referenciaId: id,
+      );
+      return 1;
+    }
+
     final db = await _db;
     final updated = await db.update(
       DatabaseTables.usuarios,
@@ -205,5 +282,38 @@ class UsuarioRepository {
       referenciaId: id,
     );
     return updated;
+  }
+
+  bool get _usaSupabase {
+    return SupabaseService.isInitialized &&
+        SessionManager.instance.perfilActual != null;
+  }
+
+  Future<List<UsuarioModel>> _listarOnline() async {
+    final perfil = SessionManager.instance.perfilActual;
+    dynamic query = SupabaseService.requireClient.from('perfiles').select();
+
+    if (perfil?.esSuperadmin != true && perfil?.companyId != null) {
+      query = query.eq('empresa_id', perfil!.companyId!);
+    }
+
+    final rows = await query.order('nombre');
+    return rows.map<UsuarioModel>(_fromPerfil).toList();
+  }
+
+  UsuarioModel _fromPerfil(Map<String, dynamic> row) {
+    final uuid = row['id'] as String;
+    return UsuarioModel(
+      id: OnlineIdMapper.instance.localIdFor(uuid),
+      nombre: row['nombre'] as String? ?? 'Usuario',
+      usuario: row['usuario'] as String? ?? row['email'] as String? ?? uuid,
+      contrasena: '',
+      rol: row['rol'] as String? ?? AppRoles.cobrador,
+      estado: row['estado'] as String? ?? AppEstados.inactivo,
+      saldoDisponible: (row['saldo_disponible'] as num?)?.toDouble() ?? 0,
+      fechaCreacion: row['created_at'] == null
+          ? DateTime.now()
+          : DateTime.parse(row['created_at'] as String),
+    );
   }
 }

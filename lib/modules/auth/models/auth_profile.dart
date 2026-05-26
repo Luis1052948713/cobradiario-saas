@@ -1,4 +1,5 @@
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/online_id_mapper.dart';
 import '../../usuarios/models/usuario_model.dart';
 
 class AuthProfile {
@@ -31,6 +32,7 @@ class AuthProfile {
 
   UsuarioModel toLegacyUsuario() {
     return UsuarioModel(
+      id: OnlineIdMapper.instance.localIdFor(id),
       nombre: nombre,
       usuario: usuario?.isNotEmpty == true ? usuario! : email,
       contrasena: '',

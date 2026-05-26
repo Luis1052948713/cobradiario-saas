@@ -1,5 +1,6 @@
 import '../../modules/auth/models/auth_profile.dart';
 import '../../modules/usuarios/models/usuario_model.dart';
+import '../services/online_id_mapper.dart';
 
 class SessionManager {
   SessionManager._internal();
@@ -18,10 +19,12 @@ class SessionManager {
   void iniciarSesion(AuthProfile perfil) {
     _perfilActual = perfil;
     _usuarioActual = perfil.toLegacyUsuario();
+    OnlineIdMapper.instance.localIdFor(perfil.id);
   }
 
   void cerrarSesion() {
     _perfilActual = null;
     _usuarioActual = null;
+    OnlineIdMapper.instance.clear();
   }
 }

@@ -3,6 +3,8 @@ import 'package:sqflite/sqflite.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
+import '../../../core/services/online_id_mapper.dart';
+import '../../../core/services/supabase_service.dart';
 import '../../../core/session/session_manager.dart';
 import '../../auditoria/data/auditoria_repository.dart';
 import '../../clientes/models/cliente_model.dart';
@@ -32,6 +34,31 @@ class RutaRepository {
     required String zona,
     required int cobradorId,
   }) async {
+    if (_usaSupabase) {
+      final perfil = SessionManager.instance.perfilActual!;
+      final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
+      if (cobradorUuid == null) throw StateError('Cobrador no encontrado.');
+      final row = await SupabaseService.requireClient
+          .from('rutas')
+          .insert({
+            'empresa_id': perfil.companyId,
+            'nombre': nombre.trim(),
+            'zona': zona.trim(),
+            'cobrador_id': cobradorUuid,
+            'estado': RutaEstados.activa,
+          })
+          .select()
+          .single();
+      final id = OnlineIdMapper.instance.localIdFor(row['id'] as String);
+      await auditoriaRepository.registrar(
+        accion: 'crear',
+        modulo: 'rutas',
+        referenciaId: id,
+        descripcion: 'Ruta creada: $nombre zona=$zona cobrador=$cobradorId',
+      );
+      return id;
+    }
+
     final db = await _db;
     final id = await db.insert(
       DatabaseTables.rutas,
@@ -52,6 +79,15 @@ class RutaRepository {
   }
 
   Future<List<RutaModel>> listar({int? cobradorId}) async {
+    if (_usaSupabase) {
+      final scope = cobradorId ?? _scopeCobrador();
+      dynamic query = SupabaseService.requireClient.from('rutas').select();
+      final cobradorUuid = OnlineIdMapper.instance.uuidFor(scope);
+      if (cobradorUuid != null) query = query.eq('cobrador_id', cobradorUuid);
+      final rows = await query.order('nombre');
+      return rows.map<RutaModel>(_rutaFromOnline).toList();
+    }
+
     final db = await _db;
     final scope = cobradorId ?? _scopeCobrador();
     final rows = await db.query(
@@ -68,6 +104,18 @@ class RutaRepository {
     required int cobradorId,
     int? rutaId,
   }) async {
+    if (_usaSupabase) {
+      final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
+      if (cobradorUuid == null) return [];
+      final rows = await SupabaseService.requireClient
+          .from('clientes')
+          .select()
+          .eq('cobrador_id', cobradorUuid)
+          .eq('estado', AppEstados.activo)
+          .order('nombre');
+      return rows.map<ClienteModel>(_clienteFromOnline).toList();
+    }
+
     final db = await _db;
     final rows = await db.rawQuery(
       '''
@@ -95,6 +143,8 @@ class RutaRepository {
   }
 
   Future<List<RutaClienteDetalle>> listarClientesRuta(int rutaId) async {
+    if (_usaSupabase) return [];
+
     await _validarAccesoRuta(rutaId);
     final db = await _db;
     final hoy = _dateKey(DateTime.now());
@@ -168,6 +218,29 @@ class RutaRepository {
     required int rutaId,
     required int clienteId,
   }) async {
+    if (_usaSupabase) {
+      final perfil = SessionManager.instance.perfilActual!;
+      final rutaUuid = OnlineIdMapper.instance.uuidFor(rutaId);
+      final clienteUuid = OnlineIdMapper.instance.uuidFor(clienteId);
+      if (rutaUuid == null || clienteUuid == null) {
+        throw StateError('Ruta o cliente online no encontrado.');
+      }
+      await SupabaseService.requireClient.from('ruta_clientes').insert({
+        'empresa_id': perfil.companyId,
+        'ruta_id': rutaUuid,
+        'cliente_id': clienteUuid,
+        'orden': 1,
+        'estado': RutaClienteEstados.activo,
+      });
+      await auditoriaRepository.registrar(
+        accion: 'agregar_cliente',
+        modulo: 'rutas',
+        referenciaId: rutaId,
+        descripcion: 'Cliente $clienteId agregado a ruta $rutaId',
+      );
+      return;
+    }
+
     final db = await _db;
     final ruta = await _buscarRuta(rutaId);
     if (ruta == null) throw StateError('La ruta no existe.');
@@ -498,6 +571,21 @@ class RutaRepository {
   }
 
   Future<void> desactivarRuta(int rutaId) async {
+    if (_usaSupabase) {
+      final rutaUuid = OnlineIdMapper.instance.uuidFor(rutaId);
+      if (rutaUuid == null) return;
+      await SupabaseService.requireClient
+          .from('rutas')
+          .update({'estado': RutaEstados.inactiva}).eq('id', rutaUuid);
+      await auditoriaRepository.registrar(
+        accion: 'desactivar',
+        modulo: 'rutas',
+        referenciaId: rutaId,
+        descripcion: 'Ruta desactivada',
+      );
+      return;
+    }
+
     final db = await _db;
     final activos = await db.query(
       DatabaseTables.rutaClientes,
@@ -578,6 +666,17 @@ class RutaRepository {
   }
 
   Future<RutaModel?> _buscarRuta(int id) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(id);
+      if (uuid == null) return null;
+      final row = await SupabaseService.requireClient
+          .from('rutas')
+          .select()
+          .eq('id', uuid)
+          .maybeSingle();
+      return row == null ? null : _rutaFromOnline(row);
+    }
+
     final db = await _db;
     final rows = await db.query(
       DatabaseTables.rutas,
@@ -590,6 +689,17 @@ class RutaRepository {
   }
 
   Future<ClienteModel?> _buscarCliente(int id) async {
+    if (_usaSupabase) {
+      final uuid = OnlineIdMapper.instance.uuidFor(id);
+      if (uuid == null) return null;
+      final row = await SupabaseService.requireClient
+          .from('clientes')
+          .select()
+          .eq('id', uuid)
+          .maybeSingle();
+      return row == null ? null : _clienteFromOnline(row);
+    }
+
     final db = await _db;
     final rows = await db.query(
       DatabaseTables.clientes,
@@ -599,6 +709,49 @@ class RutaRepository {
     );
     if (rows.isEmpty) return null;
     return ClienteModel.fromMap(rows.first);
+  }
+
+  bool get _usaSupabase {
+    return SupabaseService.isInitialized &&
+        SessionManager.instance.perfilActual?.companyId != null;
+  }
+
+  RutaModel _rutaFromOnline(Map<String, dynamic> row) {
+    return RutaModel(
+      id: OnlineIdMapper.instance.localIdFor(row['id'] as String),
+      nombre: row['nombre'] as String? ?? 'Ruta',
+      zona: row['zona'] as String? ?? 'General',
+      cobradorId: OnlineIdMapper.instance.localIdFor(
+        row['cobrador_id'] as String,
+      ),
+      estado: row['estado'] as String? ?? RutaEstados.activa,
+      fechaCreacion: row['created_at'] == null
+          ? DateTime.now()
+          : DateTime.parse(row['created_at'] as String),
+    );
+  }
+
+  ClienteModel _clienteFromOnline(Map<String, dynamic> row) {
+    final cobradorUuid = row['cobrador_id'] as String?;
+    return ClienteModel(
+      id: OnlineIdMapper.instance.localIdFor(row['id'] as String),
+      nombre: row['nombre'] as String? ?? '',
+      cedula: row['cedula'] as String?,
+      telefono: row['telefono'] as String?,
+      direccion: row['direccion'] as String?,
+      barrio: row['barrio'] as String?,
+      referencia: row['referencia'] as String?,
+      foto: row['foto_url'] as String?,
+      cobradorId: cobradorUuid == null
+          ? null
+          : OnlineIdMapper.instance.localIdFor(cobradorUuid),
+      latitud: (row['latitud'] as num?)?.toDouble(),
+      longitud: (row['longitud'] as num?)?.toDouble(),
+      estado: row['estado'] as String? ?? AppEstados.activo,
+      fechaRegistro: row['created_at'] == null
+          ? DateTime.now()
+          : DateTime.parse(row['created_at'] as String),
+    );
   }
 }
 

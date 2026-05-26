@@ -107,40 +107,49 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
   }
 
   Future<void> _abrir(String modulo, Widget page) async {
-    final esSuperadmin = _permissionService.esSuperadmin;
-    final licenciaActiva =
-        esSuperadmin || await _suscripcionRepository.licenciaActiva();
-    final modulosPermitidos = {
-      'suscripcion',
-      'configuracion',
-      'notificaciones',
-      'auditoria',
-    };
-    if (!licenciaActiva && !modulosPermitidos.contains(modulo)) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('La suscripcion esta vencida. Activa la licencia.'),
-        ),
+    try {
+      final esSuperadmin = _permissionService.esSuperadmin;
+      final licenciaActiva =
+          esSuperadmin || await _suscripcionRepository.licenciaActiva();
+      final modulosPermitidos = {
+        'suscripcion',
+        'configuracion',
+        'notificaciones',
+        'auditoria',
+      };
+      if (!licenciaActiva && !modulosPermitidos.contains(modulo)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('La suscripcion esta vencida. Activa la licencia.'),
+          ),
+        );
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SuscripcionPage()),
+        );
+        await _recargarResumen();
+        return;
+      }
+
+      await _auditoriaRepository.registrar(
+        accion: 'navegar',
+        modulo: modulo,
+        descripcion: 'Apertura de modulo $modulo desde panel principal',
       );
+
+      if (!mounted) return;
       await Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => const SuscripcionPage()),
+        MaterialPageRoute(builder: (context) => page),
       );
       await _recargarResumen();
-      return;
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo abrir $modulo: $error')),
+      );
     }
-    await _auditoriaRepository.registrar(
-      accion: 'navegar',
-      modulo: modulo,
-      descripcion: 'Apertura de modulo $modulo desde panel principal',
-    );
-    if (!mounted) return;
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => page),
-    );
-    await _recargarResumen();
   }
 
   Future<void> _cerrarSesion() async {

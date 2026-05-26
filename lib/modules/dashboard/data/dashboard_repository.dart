@@ -3,6 +3,9 @@ import 'package:sqflite/sqflite.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
+import '../../../core/services/online_id_mapper.dart';
+import '../../../core/services/supabase_service.dart';
+import '../../../core/session/session_manager.dart';
 
 class DashboardResumen {
   const DashboardResumen({
@@ -36,6 +39,8 @@ class DashboardRepository {
   Future<Database> get _db => DatabaseHelper.instance.database;
 
   Future<DashboardResumen> obtenerResumen({int? cobradorId}) async {
+    if (_usaSupabase) return _obtenerResumenOnline(cobradorId: cobradorId);
+
     final db = await _db;
     final inicioDia = _inicioDia(DateTime.now()).toIso8601String();
     final finDia = _finDia(DateTime.now()).toIso8601String();
@@ -230,5 +235,101 @@ class DashboardRepository {
 
   DateTime _finDia(DateTime date) {
     return DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
+  }
+
+  bool get _usaSupabase {
+    return SupabaseService.isInitialized &&
+        SessionManager.instance.perfilActual?.companyId != null;
+  }
+
+  Future<DashboardResumen> _obtenerResumenOnline({int? cobradorId}) async {
+    final inicioDia = _inicioDia(DateTime.now());
+    final finDia = _finDia(DateTime.now());
+    final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
+
+    final cobros = await SupabaseService.requireClient
+        .from('cobros')
+        .select('monto, cobrador_id, fecha_pago')
+        .gte('fecha_pago', inicioDia.toIso8601String())
+        .lte('fecha_pago', finDia.toIso8601String());
+    final cobrosFiltrados = cobradorUuid == null
+        ? cobros
+        : cobros.where((row) => row['cobrador_id'] == cobradorUuid).toList();
+    final totalCobradoHoy = cobrosFiltrados.fold<double>(
+      0,
+      (total, row) => total + ((row['monto'] as num?)?.toDouble() ?? 0),
+    );
+
+    final clientes = await SupabaseService.requireClient
+        .from('clientes')
+        .select('id, estado, cobrador_id');
+    final clientesFiltrados = cobradorUuid == null
+        ? clientes
+        : clientes.where((row) => row['cobrador_id'] == cobradorUuid).toList();
+    final clienteIds = clientesFiltrados.map((row) => row['id']).toSet();
+    final clientesActivos = clientesFiltrados
+        .where((row) => row['estado'] == AppEstados.activo)
+        .length;
+
+    final prestamos = await SupabaseService.requireClient
+        .from('prestamos')
+        .select('id, cliente_id, saldo, estado, fecha_inicio');
+    final prestamosFiltrados = cobradorUuid == null
+        ? prestamos
+        : prestamos.where((row) => clienteIds.contains(row['cliente_id'])).toList();
+    final prestamosActivos = prestamosFiltrados
+        .where(
+          (row) =>
+              row['estado'] == AppEstados.activo ||
+              row['estado'] == AppEstados.atrasado,
+        )
+        .length;
+    final prestamosHoy = prestamosFiltrados.where((row) {
+      final fecha = DateTime.tryParse(row['fecha_inicio'] as String? ?? '');
+      if (fecha == null) return false;
+      return !fecha.isBefore(inicioDia) && !fecha.isAfter(finDia);
+    }).length;
+    final saldoPendiente = prestamosFiltrados.fold<double>(
+      0,
+      (total, row) {
+        final estado = row['estado'];
+        if (estado != AppEstados.activo && estado != AppEstados.atrasado) {
+          return total;
+        }
+        return total + ((row['saldo'] as num?)?.toDouble() ?? 0);
+      },
+    );
+    final clientesAtrasados = prestamosFiltrados
+        .where((row) => row['estado'] == AppEstados.atrasado)
+        .map((row) => row['cliente_id'])
+        .toSet()
+        .length;
+
+    final cajas = await SupabaseService.requireClient
+        .from('cajas')
+        .select('id, estado, cobrador_id');
+    final cajasAbiertas = cajas.where((row) {
+      if (row['estado'] != CajaEstados.abierta) return false;
+      return cobradorUuid == null || row['cobrador_id'] == cobradorUuid;
+    }).length;
+
+    final cobradores = await SupabaseService.requireClient
+        .from('perfiles')
+        .select('id, rol, estado')
+        .eq('rol', AppRoles.cobrador)
+        .eq('estado', AppEstados.activo);
+
+    return DashboardResumen(
+      totalCobradoHoy: totalCobradoHoy,
+      prestamosHoy: prestamosHoy,
+      clientesActivos: clientesActivos,
+      prestamosActivos: prestamosActivos,
+      cobrosPendientes: prestamosActivos,
+      clientesAtrasados: clientesAtrasados,
+      saldoPendiente: saldoPendiente,
+      capitalDisponible: 0.0,
+      cajasAbiertas: cajasAbiertas,
+      cobradoresActivos: cobradores.length,
+    );
   }
 }
