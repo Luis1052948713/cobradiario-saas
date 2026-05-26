@@ -16,6 +16,14 @@ class SupabaseService {
     return Supabase.instance.client;
   }
 
+  static SupabaseClient get requireClient {
+    final currentClient = client;
+    if (currentClient == null) {
+      throw StateError('Supabase no esta configurado o no fue inicializado.');
+    }
+    return currentClient;
+  }
+
   static Future<bool> initializeIfConfigured() async {
     if (_initialized) return true;
 

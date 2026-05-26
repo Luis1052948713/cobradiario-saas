@@ -5,15 +5,18 @@ class PermissionService {
   const PermissionService();
 
   bool get esSuperadmin {
-    return SessionManager.instance.usuarioActual?.esSuperadmin == true;
+    return SessionManager.instance.perfilActual?.esSuperadmin == true ||
+        SessionManager.instance.usuarioActual?.esSuperadmin == true;
   }
 
   bool get esAdministrador {
-    return SessionManager.instance.usuarioActual?.esAdministrador == true;
+    return SessionManager.instance.perfilActual?.esAdministrador == true ||
+        SessionManager.instance.usuarioActual?.esAdministrador == true;
   }
 
   bool get esCobrador {
-    return SessionManager.instance.usuarioActual?.rol == AppRoles.cobrador;
+    return SessionManager.instance.perfilActual?.esCobrador == true ||
+        SessionManager.instance.usuarioActual?.rol == AppRoles.cobrador;
   }
 
   bool puedeAdministrarUsuarios() => esAdministrador;
@@ -31,6 +34,10 @@ class PermissionService {
 
   int? cobradorScope() {
     final usuario = SessionManager.instance.usuarioActual;
+    final perfil = SessionManager.instance.perfilActual;
+    if (perfil?.esCobrador == true) {
+      return usuario?.id ?? -1;
+    }
     if (usuario == null || usuario.esAdministrador || usuario.esSuperadmin) {
       return null;
     }
