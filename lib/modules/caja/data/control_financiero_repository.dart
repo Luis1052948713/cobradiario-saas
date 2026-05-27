@@ -703,7 +703,10 @@ class ControlFinancieroRepository {
     await validarCobradorPuedeOperar(cobradorId);
     final cobradorUuid = _uuidRequerido(cobradorId, 'Cobrador');
     final caja = await _cajaAbiertaOnline(cobradorUuid);
-    if (caja == null) throw StateError('No hay caja abierta para operar.');
+    final cajaUuid = _rowIdRequerido(
+      caja,
+      'No hay caja abierta para operar.',
+    );
     final saldoDespues = await _saldoDisponibleOnline(cobradorUuid) - monto;
     if (saldoDespues < 0) {
       throw StateError(
@@ -712,7 +715,7 @@ class ControlFinancieroRepository {
     }
     await _actualizarSaldoOnline(
       cobradorUuid: cobradorUuid,
-      cajaUuid: caja['id'] as String,
+      cajaUuid: cajaUuid,
       saldo: saldoDespues,
     );
   }
@@ -725,11 +728,14 @@ class ControlFinancieroRepository {
     await validarCobradorPuedeOperar(cobradorId);
     final cobradorUuid = _uuidRequerido(cobradorId, 'Cobrador');
     final caja = await _cajaAbiertaOnline(cobradorUuid);
-    if (caja == null) throw StateError('No hay caja abierta para operar.');
+    final cajaUuid = _rowIdRequerido(
+      caja,
+      'No hay caja abierta para operar.',
+    );
     final saldoDespues = await _saldoDisponibleOnline(cobradorUuid) + monto;
     await _actualizarSaldoOnline(
       cobradorUuid: cobradorUuid,
-      cajaUuid: caja['id'] as String,
+      cajaUuid: cajaUuid,
       saldo: saldoDespues,
     );
   }
@@ -1346,10 +1352,13 @@ class ControlFinancieroRepository {
       );
 
       final cierreEstado = caja == null ? null : _cierreEstadoDesdeCaja(caja);
+      final cajaId = caja == null
+          ? null
+          : OnlineIdMapper.instance.localIdFor(
+              _rowIdRequerido(caja, 'Caja online no encontrada.'),
+            );
       return CajaResumenDiario(
-        cajaId: caja == null
-            ? null
-            : OnlineIdMapper.instance.localIdFor(caja['id'] as String),
+        cajaId: cajaId,
         cobradorId: cobradorId,
         nombre: usuario['nombre'] as String? ?? 'Cobrador',
         estadoCaja: caja?['estado'] as String? ?? CajaEstados.cerrada,
@@ -1792,6 +1801,10 @@ class ControlFinancieroRepository {
     await validarCobradorPuedeOperar(cobradorId);
     final cobradorUuid = _uuidRequerido(cobradorId, 'Cobrador');
     final caja = await _cajaAbiertaOnline(cobradorUuid);
+    final cajaUuid = _rowIdRequerido(
+      caja,
+      'No hay caja abierta para operar.',
+    );
     final saldoAntes = await _saldoDisponibleOnline(cobradorUuid);
     final saldoDespues = saldoAntes - valor;
     if (saldoDespues < 0) {
@@ -1810,7 +1823,7 @@ class ControlFinancieroRepository {
     });
     await _actualizarSaldoOnline(
       cobradorUuid: cobradorUuid,
-      cajaUuid: caja['id'] as String,
+      cajaUuid: cajaUuid,
       saldo: saldoDespues,
     );
     await auditoriaRepository.registrar(
@@ -1882,6 +1895,7 @@ class ControlFinancieroRepository {
         .eq('estado', SolicitudSaldoEstados.pendiente)
         .maybeSingle();
     if (solicitud == null) throw StateError('La solicitud ya fue respondida.');
+    final solicitudRow = solicitud;
     if (aprobar && montoAprobado <= 0) {
       throw StateError('Ingresa un monto aprobado mayor a cero.');
     }
@@ -1899,7 +1913,7 @@ class ControlFinancieroRepository {
     }).eq('id', solicitudUuid);
 
     final cobradorId = OnlineIdMapper.instance.localIdFor(
-      solicitud['cobrador_id'] as String,
+      solicitudRow['cobrador_id'] as String,
     );
     if (aprobar) {
       await _asignarSaldoOnline(
@@ -1945,10 +1959,11 @@ class ControlFinancieroRepository {
       );
       return;
     }
+    final cajaUuid = _rowIdRequerido(caja, 'No hay caja abierta.');
     final saldoDespues = await _saldoDisponibleOnline(cobradorUuid) + monto;
     await _actualizarSaldoOnline(
       cobradorUuid: cobradorUuid,
-      cajaUuid: caja['id'] as String,
+      cajaUuid: cajaUuid,
       saldo: saldoDespues,
     );
     await auditoriaRepository.registrar(
@@ -1974,7 +1989,7 @@ class ControlFinancieroRepository {
   }) async {
     final cobradorUuid = _uuidRequerido(cobradorId, 'Cobrador');
     final caja = await _cajaAbiertaOnline(cobradorUuid);
-    if (caja == null) throw StateError('No hay caja abierta para cerrar.');
+    final cajaUuid = _rowIdRequerido(caja, 'No hay caja abierta para cerrar.');
     final resumen = await resumenDiario(cobradorId);
     final diferencia = dineroReportado - resumen.saldoDisponible;
     final now = DateTime.now();
@@ -1985,8 +2000,8 @@ class ControlFinancieroRepository {
       'diferencia': diferencia,
       'observacion_cierre': observacion,
       'updated_at': now.toIso8601String(),
-    }).eq('id', caja['id'] as String);
-    final cierreId = OnlineIdMapper.instance.localIdFor(caja['id'] as String);
+    }).eq('id', cajaUuid);
+    final cierreId = OnlineIdMapper.instance.localIdFor(cajaUuid);
     await auditoriaRepository.registrar(
       accion: 'cerrar_caja',
       modulo: 'caja',
@@ -2023,11 +2038,12 @@ class ControlFinancieroRepository {
         .eq('id', cajaUuid)
         .maybeSingle();
     if (cierre == null) throw StateError('El cierre no existe.');
-    if (cierre['estado'] == CajaEstados.cerrada ||
-        cierre['estado'] == CajaEstados.bloqueada) {
+    final cierreRow = cierre;
+    if (cierreRow['estado'] == CajaEstados.cerrada ||
+        cierreRow['estado'] == CajaEstados.bloqueada) {
       throw StateError('Un cierre evaluado no puede modificarse.');
     }
-    final reportado = _toDouble(cierre['dinero_reportado']);
+    final reportado = _toDouble(cierreRow['dinero_reportado']);
     await SupabaseService.requireClient.from('cajas').update({
       'dinero_entregado': montoEntregado,
       'diferencia': montoEntregado - reportado,
@@ -2064,8 +2080,9 @@ class ControlFinancieroRepository {
         .eq('id', cajaUuid)
         .maybeSingle();
     if (cierre == null) throw StateError('El cierre no existe.');
-    if (cierre['estado'] == CajaEstados.cerrada ||
-        cierre['estado'] == CajaEstados.bloqueada) {
+    final cierreRow = cierre;
+    if (cierreRow['estado'] == CajaEstados.cerrada ||
+        cierreRow['estado'] == CajaEstados.bloqueada) {
       throw StateError('Un cierre evaluado no puede modificarse.');
     }
     final estadoCaja = estado == CierreCajaEstados.aprobado
@@ -2082,7 +2099,7 @@ class ControlFinancieroRepository {
     }).eq('id', cajaUuid);
 
     final cobradorId = OnlineIdMapper.instance.localIdFor(
-      cierre['cobrador_id'] as String,
+      cierreRow['cobrador_id'] as String,
     );
     await auditoriaRepository.registrar(
       accion: estado == CierreCajaEstados.aprobado
@@ -2567,6 +2584,12 @@ class ControlFinancieroRepository {
     return uuid;
   }
 
+  String _rowIdRequerido(Map<String, dynamic>? row, String mensaje) {
+    final id = row?['id'] as String?;
+    if (id == null) throw StateError(mensaje);
+    return id;
+  }
+
   Future<Map<String, dynamic>?> _cajaAbiertaOnline(
     String cobradorUuid,
   ) async {
@@ -2728,16 +2751,18 @@ class ControlFinancieroRepository {
     if (capital == null) {
       throw StateError('Registra el capital inicial antes de continuar.');
     }
-    final saldoAntes = _toDouble(capital['capital_disponible']);
+    final capitalRow = capital;
+    final capitalUuid = _rowIdRequerido(capitalRow, 'Capital no encontrado.');
+    final saldoAntes = _toDouble(capitalRow['capital_disponible']);
     final saldoDespues = saldoAntes + delta;
     if (saldoDespues < 0) {
       throw StateError('Capital general insuficiente para esta operacion.');
     }
     await SupabaseService.requireClient.from('capital_general').update({
       'capital_disponible': saldoDespues,
-    }).eq('id', capital['id'] as String);
+    }).eq('id', capitalUuid);
     await _registrarMovimientoCapitalOnline(
-      capitalUuid: capital['id'] as String,
+      capitalUuid: capitalUuid,
       usuarioUuid: perfil.id as String,
       tipo: tipo,
       monto: monto,
@@ -2877,11 +2902,14 @@ class ControlFinancieroRepository {
     final gastosHoy = gastos
         .where((row) => row['fecha_hora']?.toString().startsWith(hoy) == true)
         .fold<double>(0, (total, row) => total + _toDouble(row['valor']));
+    final capitalId = capital == null
+        ? null
+        : OnlineIdMapper.instance.localIdFor(
+            _rowIdRequerido(capital, 'Capital no encontrado.'),
+          );
 
     return CapitalResumen(
-      capitalId: capital == null
-          ? null
-          : OnlineIdMapper.instance.localIdFor(capital['id'] as String),
+      capitalId: capitalId,
       capitalInicial: _toDouble(capital?['monto_inicial']),
       capitalDisponible: _toDouble(capital?['capital_disponible']),
       saldoOperativoCobradores: saldoOperativo,
