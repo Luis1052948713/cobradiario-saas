@@ -364,7 +364,7 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
             onTap: () => _abrir('cobradores', const CobradoresPage()),
           ),
           _MenuItem(
-            icono: Icons.manage_accounts,
+            icono: Icons.people_alt,
             titulo: 'Usuarios',
             subtitulo: 'Crear administradores y cobradores',
             color: Colors.deepPurple,
