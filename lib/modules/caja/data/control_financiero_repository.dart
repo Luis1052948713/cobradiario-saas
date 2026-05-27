@@ -522,11 +522,12 @@ class ControlFinancieroRepository {
     required double saldoInicial,
     String? observacion,
   }) async {
-    if (_usaSupabase) return _abrirCajaOnline(
-      cobradorId: cobradorId,
-      saldoInicial: saldoInicial,
-      observacion: observacion,
-    );
+    if (_usaSupabase)
+      return _abrirCajaOnline(
+        cobradorId: cobradorId,
+        saldoInicial: saldoInicial,
+        observacion: observacion,
+      );
 
     final admin = SessionManager.instance.usuarioActual;
     if (admin?.esAdministrador != true || admin?.id == null) {
@@ -703,10 +704,7 @@ class ControlFinancieroRepository {
     await validarCobradorPuedeOperar(cobradorId);
     final cobradorUuid = _uuidRequerido(cobradorId, 'Cobrador');
     final caja = await _cajaAbiertaOnline(cobradorUuid);
-    final cajaUuid = _rowIdRequerido(
-      caja,
-      'No hay caja abierta para operar.',
-    );
+    final cajaUuid = _rowIdRequerido(caja, 'No hay caja abierta para operar.');
     final saldoDespues = await _saldoDisponibleOnline(cobradorUuid) - monto;
     if (saldoDespues < 0) {
       throw StateError(
@@ -728,10 +726,7 @@ class ControlFinancieroRepository {
     await validarCobradorPuedeOperar(cobradorId);
     final cobradorUuid = _uuidRequerido(cobradorId, 'Cobrador');
     final caja = await _cajaAbiertaOnline(cobradorUuid);
-    final cajaUuid = _rowIdRequerido(
-      caja,
-      'No hay caja abierta para operar.',
-    );
+    final cajaUuid = _rowIdRequerido(caja, 'No hay caja abierta para operar.');
     final saldoDespues = await _saldoDisponibleOnline(cobradorUuid) + monto;
     await _actualizarSaldoOnline(
       cobradorUuid: cobradorUuid,
@@ -746,12 +741,13 @@ class ControlFinancieroRepository {
     required double valor,
     String? descripcion,
   }) async {
-    if (_usaSupabase) return _registrarGastoOnline(
-      cobradorId: cobradorId,
-      tipo: tipo,
-      valor: valor,
-      descripcion: descripcion,
-    );
+    if (_usaSupabase)
+      return _registrarGastoOnline(
+        cobradorId: cobradorId,
+        tipo: tipo,
+        valor: valor,
+        descripcion: descripcion,
+      );
 
     if (valor <= 0) throw StateError('El gasto debe ser mayor a cero.');
     await validarCobradorPuedeOperar(cobradorId);
@@ -796,11 +792,12 @@ class ControlFinancieroRepository {
     required double monto,
     String? observacion,
   }) async {
-    if (_usaSupabase) return _solicitarSaldoOnline(
-      cobradorId: cobradorId,
-      monto: monto,
-      observacion: observacion,
-    );
+    if (_usaSupabase)
+      return _solicitarSaldoOnline(
+        cobradorId: cobradorId,
+        monto: monto,
+        observacion: observacion,
+      );
 
     if (monto <= 0) {
       throw StateError('El monto solicitado debe ser mayor a cero.');
@@ -843,12 +840,13 @@ class ControlFinancieroRepository {
     required double montoAprobado,
     String? observacionAdmin,
   }) async {
-    if (_usaSupabase) return _responderSolicitudOnline(
-      solicitudId: solicitudId,
-      aprobar: aprobar,
-      montoAprobado: montoAprobado,
-      observacionAdmin: observacionAdmin,
-    );
+    if (_usaSupabase)
+      return _responderSolicitudOnline(
+        solicitudId: solicitudId,
+        aprobar: aprobar,
+        montoAprobado: montoAprobado,
+        observacionAdmin: observacionAdmin,
+      );
 
     final db = await _db;
     final admin = SessionManager.instance.usuarioActual;
@@ -935,11 +933,12 @@ class ControlFinancieroRepository {
     required double monto,
     String? observacion,
   }) async {
-    if (_usaSupabase) return _asignarSaldoOnline(
-      cobradorId: cobradorId,
-      monto: monto,
-      observacion: observacion,
-    );
+    if (_usaSupabase)
+      return _asignarSaldoOnline(
+        cobradorId: cobradorId,
+        monto: monto,
+        observacion: observacion,
+      );
 
     final usuario = SessionManager.instance.usuarioActual;
     if (usuario?.esAdministrador != true || usuario?.id == null) {
@@ -998,11 +997,12 @@ class ControlFinancieroRepository {
     required double dineroReportado,
     String? observacion,
   }) async {
-    if (_usaSupabase) return _cerrarCajaOnline(
-      cobradorId: cobradorId,
-      dineroReportado: dineroReportado,
-      observacion: observacion,
-    );
+    if (_usaSupabase)
+      return _cerrarCajaOnline(
+        cobradorId: cobradorId,
+        dineroReportado: dineroReportado,
+        observacion: observacion,
+      );
 
     final db = await _db;
     final caja = await cajaAbiertaDeCobrador(cobradorId);
@@ -1081,11 +1081,12 @@ class ControlFinancieroRepository {
     required double montoEntregado,
     String? observacion,
   }) async {
-    if (_usaSupabase) return _registrarEntregaDineroOnline(
-      cierreId: cierreId,
-      montoEntregado: montoEntregado,
-      observacion: observacion,
-    );
+    if (_usaSupabase)
+      return _registrarEntregaDineroOnline(
+        cierreId: cierreId,
+        montoEntregado: montoEntregado,
+        observacion: observacion,
+      );
 
     final admin = SessionManager.instance.usuarioActual;
     if (admin?.esAdministrador != true || admin?.id == null) {
@@ -1161,11 +1162,12 @@ class ControlFinancieroRepository {
     required String estado,
     String? observacionAdmin,
   }) async {
-    if (_usaSupabase) return _revisarCierreOnline(
-      cierreId: cierreId,
-      estado: estado,
-      observacionAdmin: observacionAdmin,
-    );
+    if (_usaSupabase)
+      return _revisarCierreOnline(
+        cierreId: cierreId,
+        estado: estado,
+        observacionAdmin: observacionAdmin,
+      );
 
     final admin = SessionManager.instance.usuarioActual;
     if (admin?.esAdministrador != true || admin?.id == null) {
@@ -1506,7 +1508,9 @@ class ControlFinancieroRepository {
       final rows = await SupabaseService.requireClient
           .from('cajas')
           .select()
-          .or('dinero_reportado.not.is.null,estado.eq.pendiente_revision,estado.eq.bloqueada')
+          .or(
+            'dinero_reportado.not.is.null,estado.eq.pendiente_revision,estado.eq.bloqueada',
+          )
           .order('updated_at', ascending: false)
           .limit(100);
       final result = <Map<String, Object?>>[];
@@ -1657,9 +1661,7 @@ class ControlFinancieroRepository {
 
   Future<List<Map<String, Object?>>> gastos({int? cobradorId}) async {
     if (_usaSupabase) {
-      dynamic query = SupabaseService.requireClient
-          .from('gastos')
-          .select();
+      dynamic query = SupabaseService.requireClient.from('gastos').select();
       final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
       if (cobradorUuid != null) query = query.eq('cobrador_id', cobradorUuid);
       final rows = await query.order('fecha_hora', ascending: false);
@@ -1700,7 +1702,9 @@ class ControlFinancieroRepository {
           .from('cajas')
           .select()
           .eq('cobrador_id', cobradorUuid)
-          .or('dinero_reportado.not.is.null,estado.eq.pendiente_revision,estado.eq.bloqueada')
+          .or(
+            'dinero_reportado.not.is.null,estado.eq.pendiente_revision,estado.eq.bloqueada',
+          )
           .order('updated_at', ascending: false)
           .limit(50);
       final result = <Map<String, Object?>>[];
@@ -1749,10 +1753,23 @@ class ControlFinancieroRepository {
         })
         .select()
         .single();
-    await SupabaseService.requireClient.from('perfiles').update({
-      'saldo_disponible': saldoInicial,
-      'updated_at': now.toIso8601String(),
-    }).eq('id', cobradorUuid);
+
+    if (saldoInicial > 0) {
+      await _ajustarCapitalOnline(
+        tipo: CapitalMovimientoTipos.asignacionCobrador,
+        monto: saldoInicial,
+        delta: -saldoInicial,
+        observacion: observacion ?? 'Apertura de caja',
+      );
+    }
+
+    await SupabaseService.requireClient
+        .from('perfiles')
+        .update({
+          'saldo_disponible': saldoInicial,
+          'updated_at': now.toIso8601String(),
+        })
+        .eq('id', cobradorUuid);
 
     final cajaId = OnlineIdMapper.instance.localIdFor(row['id'] as String);
     await auditoriaRepository.registrar(
@@ -1801,10 +1818,7 @@ class ControlFinancieroRepository {
     await validarCobradorPuedeOperar(cobradorId);
     final cobradorUuid = _uuidRequerido(cobradorId, 'Cobrador');
     final caja = await _cajaAbiertaOnline(cobradorUuid);
-    final cajaUuid = _rowIdRequerido(
-      caja,
-      'No hay caja abierta para operar.',
-    );
+    final cajaUuid = _rowIdRequerido(caja, 'No hay caja abierta para operar.');
     final saldoAntes = await _saldoDisponibleOnline(cobradorUuid);
     final saldoDespues = saldoAntes - valor;
     if (saldoDespues < 0) {
@@ -1901,16 +1915,19 @@ class ControlFinancieroRepository {
     }
 
     final monto = aprobar ? montoAprobado : 0.0;
-    await SupabaseService.requireClient.from('solicitudes_saldo').update({
-      'estado': aprobar
-          ? SolicitudSaldoEstados.aprobada
-          : SolicitudSaldoEstados.rechazada,
-      'monto_aprobado': monto,
-      'observacion_admin': observacionAdmin,
-      'fecha_respuesta': DateTime.now().toIso8601String(),
-      'admin_id': perfil.id,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', solicitudUuid);
+    await SupabaseService.requireClient
+        .from('solicitudes_saldo')
+        .update({
+          'estado': aprobar
+              ? SolicitudSaldoEstados.aprobada
+              : SolicitudSaldoEstados.rechazada,
+          'monto_aprobado': monto,
+          'observacion_admin': observacionAdmin,
+          'fecha_respuesta': DateTime.now().toIso8601String(),
+          'admin_id': perfil.id,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', solicitudUuid);
 
     final cobradorId = OnlineIdMapper.instance.localIdFor(
       solicitudRow['cobrador_id'] as String,
@@ -1993,14 +2010,17 @@ class ControlFinancieroRepository {
     final resumen = await resumenDiario(cobradorId);
     final diferencia = dineroReportado - resumen.saldoDisponible;
     final now = DateTime.now();
-    await SupabaseService.requireClient.from('cajas').update({
-      'estado': CajaEstados.pendienteRevision,
-      'hora_cierre': _timeKey(now),
-      'dinero_reportado': dineroReportado,
-      'diferencia': diferencia,
-      'observacion_cierre': observacion,
-      'updated_at': now.toIso8601String(),
-    }).eq('id', cajaUuid);
+    await SupabaseService.requireClient
+        .from('cajas')
+        .update({
+          'estado': CajaEstados.pendienteRevision,
+          'hora_cierre': _timeKey(now),
+          'dinero_reportado': dineroReportado,
+          'diferencia': diferencia,
+          'observacion_cierre': observacion,
+          'updated_at': now.toIso8601String(),
+        })
+        .eq('id', cajaUuid);
     final cierreId = OnlineIdMapper.instance.localIdFor(cajaUuid);
     await auditoriaRepository.registrar(
       accion: 'cerrar_caja',
@@ -2044,13 +2064,16 @@ class ControlFinancieroRepository {
       throw StateError('Un cierre evaluado no puede modificarse.');
     }
     final reportado = _toDouble(cierreRow['dinero_reportado']);
-    await SupabaseService.requireClient.from('cajas').update({
-      'dinero_entregado': montoEntregado,
-      'diferencia': montoEntregado - reportado,
-      'admin_id': perfil.id,
-      'observacion_admin': observacion,
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', cajaUuid);
+    await SupabaseService.requireClient
+        .from('cajas')
+        .update({
+          'dinero_entregado': montoEntregado,
+          'diferencia': montoEntregado - reportado,
+          'admin_id': perfil.id,
+          'observacion_admin': observacion,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', cajaUuid);
     await auditoriaRepository.registrar(
       accion: 'entrega_dinero',
       modulo: 'caja',
@@ -2090,13 +2113,16 @@ class ControlFinancieroRepository {
         : estado == CierreCajaEstados.rechazado
         ? CajaEstados.bloqueada
         : CajaEstados.pendienteRevision;
-    await SupabaseService.requireClient.from('cajas').update({
-      'estado': estadoCaja,
-      'observacion_admin': observacionAdmin,
-      'admin_id': perfil.id,
-      'fecha_revision': DateTime.now().toIso8601String(),
-      'updated_at': DateTime.now().toIso8601String(),
-    }).eq('id', cajaUuid);
+    await SupabaseService.requireClient
+        .from('cajas')
+        .update({
+          'estado': estadoCaja,
+          'observacion_admin': observacionAdmin,
+          'admin_id': perfil.id,
+          'fecha_revision': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', cajaUuid);
 
     final cobradorId = OnlineIdMapper.instance.localIdFor(
       cierreRow['cobrador_id'] as String,
@@ -2590,9 +2616,7 @@ class ControlFinancieroRepository {
     return id;
   }
 
-  Future<Map<String, dynamic>?> _cajaAbiertaOnline(
-    String cobradorUuid,
-  ) async {
+  Future<Map<String, dynamic>?> _cajaAbiertaOnline(String cobradorUuid) async {
     return SupabaseService.requireClient
         .from('cajas')
         .select()
@@ -2619,14 +2643,14 @@ class ControlFinancieroRepository {
     required double saldo,
   }) async {
     final now = DateTime.now().toIso8601String();
-    await SupabaseService.requireClient.from('perfiles').update({
-      'saldo_disponible': saldo,
-      'updated_at': now,
-    }).eq('id', cobradorUuid);
-    await SupabaseService.requireClient.from('cajas').update({
-      'saldo_actual': saldo,
-      'updated_at': now,
-    }).eq('id', cajaUuid);
+    await SupabaseService.requireClient
+        .from('perfiles')
+        .update({'saldo_disponible': saldo, 'updated_at': now})
+        .eq('id', cobradorUuid);
+    await SupabaseService.requireClient
+        .from('cajas')
+        .update({'saldo_actual': saldo, 'updated_at': now})
+        .eq('id', cajaUuid);
   }
 
   Map<String, Object?> _cajaOnlineToMap(Map<String, dynamic> row) {
@@ -2743,6 +2767,8 @@ class ControlFinancieroRepository {
     required double monto,
     required double delta,
     String? observacion,
+    String? referenciaTabla,
+    String? referenciaUuid,
   }) async {
     final perfil = _perfilActualOnline();
     _validarAdminOnline(perfil);
@@ -2758,9 +2784,10 @@ class ControlFinancieroRepository {
     if (saldoDespues < 0) {
       throw StateError('Capital general insuficiente para esta operacion.');
     }
-    await SupabaseService.requireClient.from('capital_general').update({
-      'capital_disponible': saldoDespues,
-    }).eq('id', capitalUuid);
+    await SupabaseService.requireClient
+        .from('capital_general')
+        .update({'capital_disponible': saldoDespues})
+        .eq('id', capitalUuid);
     await _registrarMovimientoCapitalOnline(
       capitalUuid: capitalUuid,
       usuarioUuid: perfil.id as String,
@@ -2769,6 +2796,8 @@ class ControlFinancieroRepository {
       saldoAntes: saldoAntes,
       saldoDespues: saldoDespues,
       observacion: observacion,
+      referenciaTabla: referenciaTabla,
+      referenciaUuid: referenciaUuid,
     );
   }
 
