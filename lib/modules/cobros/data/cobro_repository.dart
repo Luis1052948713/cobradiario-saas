@@ -255,6 +255,10 @@ class CobroRepository {
       'estado': nuevoEstado,
       'updated_at': DateTime.now().toIso8601String(),
     }).eq('id', prestamoUuid);
+    await controlFinancieroRepository.aumentarCobroOnline(
+      cobradorId: OnlineIdMapper.instance.localIdFor(cobradorUuid),
+      monto: cobro.monto,
+    );
 
     final id = OnlineIdMapper.instance.localIdFor(row['id'] as String);
     await SupabaseService.requireClient.from('auditoria').insert({

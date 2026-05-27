@@ -356,6 +356,9 @@ class PrestamoRepository {
     if (perfil.esCobrador && perfil.id != cobradorUuid) {
       throw StateError('No puedes prestar a clientes de otro cobrador.');
     }
+    await controlFinancieroRepository.validarCobradorPuedeOperar(
+      OnlineIdMapper.instance.localIdFor(cobradorUuid),
+    );
 
     final row = await SupabaseService.requireClient
         .from('prestamos')
@@ -374,6 +377,10 @@ class PrestamoRepository {
         })
         .select()
         .single();
+    await controlFinancieroRepository.descontarPrestamoOnline(
+      cobradorId: OnlineIdMapper.instance.localIdFor(cobradorUuid),
+      monto: prestamo.monto,
+    );
 
     final id = OnlineIdMapper.instance.localIdFor(row['id'] as String);
     await auditoriaRepository.registrar(
