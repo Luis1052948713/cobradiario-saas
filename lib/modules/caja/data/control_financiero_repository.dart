@@ -212,7 +212,36 @@ class ControlFinancieroRepository {
   }
 
   Future<List<Map<String, Object?>>> movimientosCapital() async {
-    if (_usaSupabase) return [];
+    if (_usaSupabase) {
+      final rows = await SupabaseService.requireClient
+          .from('movimientos_capital')
+          .select()
+          .order('created_at', ascending: false)
+          .limit(100);
+      final result = <Map<String, Object?>>[];
+      for (final row in rows) {
+        final usuarioId = row['usuario_id'] == null
+            ? null
+            : OnlineIdMapper.instance.localIdFor(row['usuario_id'] as String);
+        result.add({
+          'id': OnlineIdMapper.instance.localIdFor(row['id'] as String),
+          'capital_id': row['capital_id'] == null
+              ? null
+              : OnlineIdMapper.instance.localIdFor(row['capital_id'] as String),
+          'usuario_id': usuarioId,
+          'usuario_nombre': usuarioId == null
+              ? null
+              : await _nombreUsuario(usuarioId),
+          'tipo': row['tipo'],
+          'monto': row['monto'],
+          'saldo_antes': row['saldo_antes'],
+          'saldo_despues': row['saldo_despues'],
+          'observacion': row['observacion'],
+          'fecha_hora': row['created_at'],
+        });
+      }
+      return result;
+    }
 
     final db = await _db;
     return db.rawQuery('''
@@ -228,6 +257,14 @@ class ControlFinancieroRepository {
     required double monto,
     String? observacion,
   }) async {
+    if (_usaSupabase) {
+      await _registrarCapitalInicialOnline(
+        monto: monto,
+        observacion: observacion,
+      );
+      return;
+    }
+
     final admin = _adminActual();
     if (monto <= 0) {
       throw StateError('El capital inicial debe ser mayor a cero.');
@@ -273,6 +310,21 @@ class ControlFinancieroRepository {
     required double monto,
     String? observacion,
   }) async {
+    if (_usaSupabase) {
+      await _ajustarCapitalOnline(
+        tipo: CapitalMovimientoTipos.ingresoAdicional,
+        monto: monto,
+        delta: monto,
+        observacion: observacion ?? 'Ingreso adicional',
+      );
+      await auditoriaRepository.registrar(
+        accion: 'ingreso_capital',
+        modulo: 'capital',
+        descripcion: 'Ingreso capital monto=$monto',
+      );
+      return;
+    }
+
     final admin = _adminActual();
     if (monto <= 0) throw StateError('El ingreso debe ser mayor a cero.');
     final db = await _db;
@@ -297,6 +349,21 @@ class ControlFinancieroRepository {
     required double monto,
     String? observacion,
   }) async {
+    if (_usaSupabase) {
+      await _ajustarCapitalOnline(
+        tipo: CapitalMovimientoTipos.retiroAdministrativo,
+        monto: monto,
+        delta: -monto,
+        observacion: observacion ?? 'Retiro administrativo',
+      );
+      await auditoriaRepository.registrar(
+        accion: 'retiro_capital',
+        modulo: 'capital',
+        descripcion: 'Retiro capital monto=$monto',
+      );
+      return;
+    }
+
     final admin = _adminActual();
     if (monto <= 0) throw StateError('El retiro debe ser mayor a cero.');
     final db = await _db;
@@ -318,6 +385,11 @@ class ControlFinancieroRepository {
   }
 
   Future<void> cerrarFinancieroDiario({String? observacion}) async {
+    if (_usaSupabase) {
+      await _cerrarFinancieroDiarioOnline(observacion: observacion);
+      return;
+    }
+
     final admin = _adminActual();
     final resumen = await resumenCapital();
     if (!resumen.registrado) {
@@ -2599,21 +2671,229 @@ class ControlFinancieroRepository {
         SessionManager.instance.perfilActual?.companyId != null;
   }
 
-  CapitalResumen _capitalResumenOnline() {
-    return const CapitalResumen(
-      capitalId: null,
-      capitalInicial: 0,
-      capitalDisponible: 0,
-      saldoOperativoCobradores: 0,
-      capitalPrestado: 0,
-      dineroEnCalle: 0,
-      dineroRecaudado: 0,
-      ganancias: 0,
-      gastos: 0,
+  Future<void> _registrarCapitalInicialOnline({
+    required double monto,
+    String? observacion,
+  }) async {
+    final perfil = _perfilActualOnline();
+    _validarAdminOnline(perfil);
+    if (monto <= 0) {
+      throw StateError('El capital inicial debe ser mayor a cero.');
+    }
+    final activo = await _capitalActivoOnline();
+    if (activo != null) {
+      throw StateError('Ya existe un capital activo registrado.');
+    }
+    final row = await SupabaseService.requireClient
+        .from('capital_general')
+        .insert({
+          'empresa_id': perfil.companyId,
+          'monto_inicial': monto,
+          'capital_disponible': monto,
+          'observacion': observacion,
+          'usuario_id': perfil.id,
+          'estado': 'activo',
+        })
+        .select()
+        .single();
+    await _registrarMovimientoCapitalOnline(
+      capitalUuid: row['id'] as String,
+      usuarioUuid: perfil.id as String,
+      tipo: CapitalMovimientoTipos.capitalInicial,
+      monto: monto,
+      saldoAntes: 0,
+      saldoDespues: monto,
+      observacion: observacion ?? 'Capital inicial',
+      referenciaTabla: 'capital_general',
+      referenciaUuid: row['id'] as String,
+    );
+    await auditoriaRepository.registrar(
+      accion: 'registrar_capital_inicial',
+      modulo: 'capital',
+      referenciaId: OnlineIdMapper.instance.localIdFor(row['id'] as String),
+      descripcion: 'Capital inicial monto=$monto',
+    );
+  }
+
+  Future<void> _ajustarCapitalOnline({
+    required String tipo,
+    required double monto,
+    required double delta,
+    String? observacion,
+  }) async {
+    final perfil = _perfilActualOnline();
+    _validarAdminOnline(perfil);
+    if (monto <= 0) throw StateError('El monto debe ser mayor a cero.');
+    final capital = await _capitalActivoOnline();
+    if (capital == null) {
+      throw StateError('Registra el capital inicial antes de continuar.');
+    }
+    final saldoAntes = _toDouble(capital['capital_disponible']);
+    final saldoDespues = saldoAntes + delta;
+    if (saldoDespues < 0) {
+      throw StateError('Capital general insuficiente para esta operacion.');
+    }
+    await SupabaseService.requireClient.from('capital_general').update({
+      'capital_disponible': saldoDespues,
+    }).eq('id', capital['id'] as String);
+    await _registrarMovimientoCapitalOnline(
+      capitalUuid: capital['id'] as String,
+      usuarioUuid: perfil.id as String,
+      tipo: tipo,
+      monto: monto,
+      saldoAntes: saldoAntes,
+      saldoDespues: saldoDespues,
+      observacion: observacion,
+    );
+  }
+
+  Future<void> _cerrarFinancieroDiarioOnline({String? observacion}) async {
+    final perfil = _perfilActualOnline();
+    _validarAdminOnline(perfil);
+    final resumen = await _capitalResumenOnline();
+    if (!resumen.registrado) {
+      throw StateError('Registra el capital inicial antes de cerrar.');
+    }
+    final fecha = _dateKey(DateTime.now());
+    final row = await SupabaseService.requireClient
+        .from('cierres_financieros')
+        .insert({
+          'empresa_id': perfil.companyId,
+          'capital_id': _uuidRequerido(resumen.capitalId!, 'Capital'),
+          'admin_id': perfil.id,
+          'fecha': fecha,
+          'capital_inicial': resumen.capitalInicial,
+          'saldo_distribuido': resumen.saldoDistribuidoHoy,
+          'total_prestado': resumen.totalPrestadoHoy,
+          'total_recaudado': resumen.totalRecaudadoHoy,
+          'gastos': resumen.gastosHoy,
+          'ganancias': resumen.ganancias,
+          'capital_final': resumen.capitalFinal,
+          'observacion': observacion,
+        })
+        .select()
+        .single();
+    await _registrarMovimientoCapitalOnline(
+      capitalUuid: _uuidRequerido(resumen.capitalId!, 'Capital'),
+      usuarioUuid: perfil.id as String,
+      tipo: CapitalMovimientoTipos.cierreFinanciero,
+      monto: resumen.capitalFinal,
+      saldoAntes: resumen.capitalDisponible,
+      saldoDespues: resumen.capitalDisponible,
+      observacion: observacion ?? 'Cierre financiero diario',
+      referenciaTabla: 'cierres_financieros',
+      referenciaUuid: row['id'] as String,
+    );
+    await auditoriaRepository.registrar(
+      accion: 'cierre_financiero',
+      modulo: 'capital',
+      referenciaId: OnlineIdMapper.instance.localIdFor(row['id'] as String),
+      descripcion: 'Cierre financiero fecha=$fecha',
+    );
+  }
+
+  Future<Map<String, dynamic>?> _capitalActivoOnline() {
+    final empresaId = SessionManager.instance.perfilActual?.companyId;
+    dynamic query = SupabaseService.requireClient
+        .from('capital_general')
+        .select()
+        .eq('estado', 'activo');
+    if (empresaId != null) query = query.eq('empresa_id', empresaId);
+    return query.order('created_at', ascending: false).limit(1).maybeSingle();
+  }
+
+  Future<void> _registrarMovimientoCapitalOnline({
+    required String capitalUuid,
+    required String usuarioUuid,
+    required String tipo,
+    required double monto,
+    required double saldoAntes,
+    required double saldoDespues,
+    String? observacion,
+    String? referenciaTabla,
+    String? referenciaUuid,
+  }) async {
+    final perfil = _perfilActualOnline();
+    await SupabaseService.requireClient.from('movimientos_capital').insert({
+      'empresa_id': perfil.companyId,
+      'capital_id': capitalUuid,
+      'usuario_id': usuarioUuid,
+      'tipo': tipo,
+      'monto': monto,
+      'saldo_antes': saldoAntes,
+      'saldo_despues': saldoDespues,
+      'observacion': observacion,
+      'referencia_tabla': referenciaTabla,
+      'referencia_id': referenciaUuid,
+    });
+  }
+
+  Future<CapitalResumen> _capitalResumenOnline() async {
+    final capital = await _capitalActivoOnline();
+    final hoy = _dateKey(DateTime.now());
+    final saldoCobradores = await SupabaseService.requireClient
+        .from('perfiles')
+        .select('saldo_disponible')
+        .eq('rol', AppRoles.cobrador)
+        .eq('estado', AppEstados.activo);
+    final prestamosActivos = await SupabaseService.requireClient
+        .from('prestamos')
+        .select('monto, saldo, estado, created_at')
+        .inFilter('estado', [AppEstados.activo, AppEstados.atrasado]);
+    final cobros = await SupabaseService.requireClient
+        .from('cobros')
+        .select('monto, fecha_pago')
+        .eq('estado', 'registrado');
+    final gastos = await SupabaseService.requireClient
+        .from('gastos')
+        .select('valor, fecha_hora');
+
+    final saldoOperativo = saldoCobradores.fold<double>(
+      0,
+      (total, row) => total + _toDouble(row['saldo_disponible']),
+    );
+    final capitalPrestado = prestamosActivos.fold<double>(
+      0,
+      (total, row) => total + _toDouble(row['monto']),
+    );
+    final dineroEnCalle = prestamosActivos.fold<double>(
+      0,
+      (total, row) => total + _toDouble(row['saldo']),
+    );
+    final dineroRecaudado = cobros.fold<double>(
+      0,
+      (total, row) => total + _toDouble(row['monto']),
+    );
+    final gastosTotal = gastos.fold<double>(
+      0,
+      (total, row) => total + _toDouble(row['valor']),
+    );
+    final totalPrestadoHoy = prestamosActivos
+        .where((row) => row['created_at']?.toString().startsWith(hoy) == true)
+        .fold<double>(0, (total, row) => total + _toDouble(row['monto']));
+    final totalRecaudadoHoy = cobros
+        .where((row) => row['fecha_pago']?.toString().startsWith(hoy) == true)
+        .fold<double>(0, (total, row) => total + _toDouble(row['monto']));
+    final gastosHoy = gastos
+        .where((row) => row['fecha_hora']?.toString().startsWith(hoy) == true)
+        .fold<double>(0, (total, row) => total + _toDouble(row['valor']));
+
+    return CapitalResumen(
+      capitalId: capital == null
+          ? null
+          : OnlineIdMapper.instance.localIdFor(capital['id'] as String),
+      capitalInicial: _toDouble(capital?['monto_inicial']),
+      capitalDisponible: _toDouble(capital?['capital_disponible']),
+      saldoOperativoCobradores: saldoOperativo,
+      capitalPrestado: capitalPrestado,
+      dineroEnCalle: dineroEnCalle,
+      dineroRecaudado: dineroRecaudado,
+      ganancias: dineroRecaudado - gastosTotal,
+      gastos: gastosTotal,
       saldoDistribuidoHoy: 0,
-      totalPrestadoHoy: 0,
-      totalRecaudadoHoy: 0,
-      gastosHoy: 0,
+      totalPrestadoHoy: totalPrestadoHoy,
+      totalRecaudadoHoy: totalRecaudadoHoy,
+      gastosHoy: gastosHoy,
     );
   }
 
