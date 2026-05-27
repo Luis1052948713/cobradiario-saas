@@ -24,6 +24,7 @@ import '../../reportes/pages/reportes_page.dart';
 import '../../rutas/pages/rutas_page.dart';
 import '../../suscripcion/data/suscripcion_repository.dart';
 import '../../suscripcion/pages/suscripcion_page.dart';
+import '../../usuarios/pages/usuarios_page.dart';
 import '../data/dashboard_repository.dart';
 
 class DashboardPage extends StatefulWidget {
@@ -361,6 +362,16 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
             detalle: 'Activos',
             submodulos: const ['Listado', 'Caja', 'Rutas'],
             onTap: () => _abrir('cobradores', const CobradoresPage()),
+          ),
+          _MenuItem(
+            icono: Icons.manage_accounts,
+            titulo: 'Usuarios',
+            subtitulo: 'Crear administradores y cobradores',
+            color: Colors.deepPurple,
+            indicador: '${resumen?.cobradoresActivos ?? 0}',
+            detalle: 'Cobradores',
+            submodulos: const ['Crear', 'Roles', 'Estados'],
+            onTap: () => _abrir('usuarios', const UsuariosPage()),
           ),
           _MenuItem(
             icono: Icons.people,

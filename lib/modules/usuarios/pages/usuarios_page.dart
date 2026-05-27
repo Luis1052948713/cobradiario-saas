@@ -169,7 +169,7 @@ class _UsuariosPageState extends State<UsuariosPage> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _abrirFormulario(),
         icon: const Icon(Icons.person_add),
-        label: const Text('Nuevo'),
+        label: const Text('Nuevo usuario'),
       ),
       body: RefreshIndicator(
         onRefresh: _cargarUsuarios,
