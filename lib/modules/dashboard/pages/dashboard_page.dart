@@ -295,6 +295,16 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
               onTap: () => _abrir('prestamos', const PrestamosPage()),
             ),
             _MenuItem(
+              icono: Icons.people,
+              titulo: 'Clientes',
+              subtitulo: 'Ver tus clientes asignados',
+              color: Colors.blue,
+              indicador: '${resumen?.clientesActivos ?? 0}',
+              detalle: 'Activos',
+              submodulos: const ['Listado', 'Mora', 'Prestamos'],
+              onTap: () => _abrir('clientes', const ClientesPage()),
+            ),
+            _MenuItem(
               icono: Icons.receipt_long,
               titulo: 'Gastos',
               subtitulo: 'Gastos operativos registrados',
