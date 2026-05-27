@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -97,7 +95,7 @@ class _ReportesPageState extends State<ReportesPage> with RouteAware {
 
   Future<void> _exportar({
     required String tipo,
-    required Future<File> Function() action,
+    required Future<ReporteExportResult> Function() action,
   }) async {
     setState(() => _exportando = tipo);
 
@@ -106,11 +104,11 @@ class _ReportesPageState extends State<ReportesPage> with RouteAware {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$tipo exportado: ${file.path}'),
+          content: Text('$tipo listo: ${file.location}'),
           action: SnackBarAction(
             label: 'Copiar',
             onPressed: () {
-              Clipboard.setData(ClipboardData(text: file.path));
+              Clipboard.setData(ClipboardData(text: file.location));
             },
           ),
         ),
@@ -310,6 +308,29 @@ class _ReporteContenido extends StatelessWidget {
               titulo: 'Promedio',
               valor: _money(reporte.promedioPorPago),
               color: Colors.orange,
+            ),
+          ],
+        ),
+        const SizedBox(height: 18),
+        _SeccionTitulo(titulo: 'Indicadores de gestion'),
+        Row(
+          children: [
+            Expanded(
+              child: _ReporteMetricCard(
+                icono: Icons.task_alt,
+                titulo: 'Efectividad',
+                valor: _percent(reporte.efectividadVisitas),
+                color: Colors.teal,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: _ReporteMetricCard(
+                icono: Icons.pie_chart,
+                titulo: 'Cobertura',
+                valor: _percent(reporte.coberturaRecaudo),
+                color: Colors.indigo,
+              ),
             ),
           ],
         ),
@@ -588,6 +609,8 @@ class _RangoReporte {
 }
 
 String _money(double value) => CurrencyFormatter.pesos(value);
+
+String _percent(double value) => '${value.toStringAsFixed(1)}%';
 
 String _date(DateTime value) {
   return '${value.day.toString().padLeft(2, '0')}/'

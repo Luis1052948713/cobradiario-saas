@@ -1,18 +1,26 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:excel/excel.dart' as xls;
-import 'package:path/path.dart' as path;
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../../core/utils/currency_formatter.dart';
 import '../data/reportes_repository.dart';
+import 'reporte_file_saver_stub.dart'
+    if (dart.library.html) 'reporte_file_saver_web.dart'
+    if (dart.library.io) 'reporte_file_saver_io.dart';
+
+class ReporteExportResult {
+  const ReporteExportResult({required this.fileName, required this.location});
+
+  final String fileName;
+  final String location;
+}
 
 class ReporteExportService {
   const ReporteExportService();
 
-  Future<File> exportarPdf({
+  Future<ReporteExportResult> exportarPdf({
     required ReporteCobros reporte,
     required bool incluyeGlobal,
   }) async {
@@ -51,6 +59,8 @@ class ReporteExportService {
               ['Pagos realizados', '${reporte.cantidadPagos}'],
               ['Visitas sin pago', '${reporte.cantidadVisitas}'],
               ['Promedio por pago', _money(reporte.promedioPorPago)],
+              ['Efectividad de visitas', _percent(reporte.efectividadVisitas)],
+              ['Cobertura de recaudo', _percent(reporte.coberturaRecaudo)],
             ],
           ),
           pw.SizedBox(height: 14),
@@ -78,11 +88,14 @@ class ReporteExportService {
       ),
     );
 
-    final file = await _crearArchivo(extension: 'pdf');
-    return file.writeAsBytes(await document.save(), flush: true);
+    return _guardarBytes(
+      bytes: Uint8List.fromList(await document.save()),
+      extension: 'pdf',
+      mimeType: 'application/pdf',
+    );
   }
 
-  Future<File> exportarExcel({
+  Future<ReporteExportResult> exportarExcel({
     required ReporteCobros reporte,
     required bool incluyeGlobal,
   }) async {
@@ -110,6 +123,8 @@ class ReporteExportService {
       ['Pagos realizados', reporte.cantidadPagos],
       ['Visitas sin pago', reporte.cantidadVisitas],
       ['Promedio por pago', reporte.promedioPorPago],
+      ['Efectividad de visitas', '${reporte.efectividadVisitas.toStringAsFixed(1)}%'],
+      ['Cobertura de recaudo', '${reporte.coberturaRecaudo.toStringAsFixed(1)}%'],
     ]);
 
     _appendSection(sheet, 'Estado de cartera', [
@@ -130,8 +145,12 @@ class ReporteExportService {
       throw StateError('No se pudo generar el archivo Excel.');
     }
 
-    final file = await _crearArchivo(extension: 'xlsx');
-    return file.writeAsBytes(bytes, flush: true);
+    return _guardarBytes(
+      bytes: Uint8List.fromList(bytes),
+      extension: 'xlsx',
+      mimeType:
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
   }
 
   pw.Widget _pdfTable({
@@ -180,70 +199,24 @@ class ReporteExportService {
     sheet.appendRow([]);
   }
 
-  Future<File> _crearArchivo({required String extension}) async {
-    final baseDirectory = await _directorioBase();
-    final exportDirectory = Directory(
-      path.join(baseDirectory.path, 'cobra_diario_reportes'),
+  Future<ReporteExportResult> _guardarBytes({
+    required Uint8List bytes,
+    required String extension,
+    required String mimeType,
+  }) async {
+    final fileName = 'reporte_${_fileStamp(DateTime.now())}.$extension';
+    final location = await saveReportBytes(
+      bytes: bytes,
+      fileName: fileName,
+      mimeType: mimeType,
     );
-    await exportDirectory.create(recursive: true);
-
-    final now = DateTime.now();
-    final fileName = 'reporte_${_fileStamp(now)}.$extension';
-    return File(path.join(exportDirectory.path, fileName));
-  }
-
-  Future<Directory> _directorioBase() async {
-    final publicDownloads = await _directorioDescargasPublico();
-    if (publicDownloads != null) return publicDownloads;
-
-    try {
-      final downloads = await getDownloadsDirectory();
-      if (downloads != null) return downloads;
-    } catch (_) {
-      // Some mobile platforms do not expose a public downloads directory.
-    }
-
-    return getApplicationDocumentsDirectory();
-  }
-
-  Future<Directory?> _directorioDescargasPublico() async {
-    final candidates = <Directory>[];
-
-    if (Platform.isAndroid) {
-      candidates.add(Directory('/storage/emulated/0/Download'));
-    }
-
-    if (Platform.isWindows) {
-      final userProfile = Platform.environment['USERPROFILE'];
-      if (userProfile != null && userProfile.isNotEmpty) {
-        candidates.add(Directory(path.join(userProfile, 'Downloads')));
-        candidates.add(Directory(path.join(userProfile, 'Descargas')));
-      }
-    }
-
-    if (Platform.isLinux || Platform.isMacOS) {
-      final home = Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        candidates.add(Directory(path.join(home, 'Downloads')));
-        candidates.add(Directory(path.join(home, 'Descargas')));
-      }
-    }
-
-    for (final directory in candidates) {
-      try {
-        if (await directory.exists()) {
-          return directory;
-        }
-      } catch (_) {
-        // Continue with the next candidate if the platform denies access.
-      }
-    }
-
-    return null;
+    return ReporteExportResult(fileName: fileName, location: location);
   }
 }
 
 String _money(double value) => CurrencyFormatter.pesos(value);
+
+String _percent(double value) => '${value.toStringAsFixed(1)}%';
 
 String _date(DateTime value) {
   return '${value.day.toString().padLeft(2, '0')}/'
