@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -211,6 +212,8 @@ class AuthService {
   }
 
   Future<void> _cacheProfile(AuthProfile profile) async {
+    if (kIsWeb) return;
+
     final usuario = profile.toLegacyUsuario();
     final id = usuario.id;
     if (id == null) return;
