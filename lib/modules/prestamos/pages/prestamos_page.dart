@@ -136,7 +136,7 @@ class _PrestamosPageState extends State<PrestamosPage> {
 
     final interesesPermitidos = await _obtenerInteresesPermitidos();
     final montoMaximoCobrador = await _obtenerMontoMaximoCobrador();
-    final cuotasDefecto = await _obtenerCuotasDefecto();
+    final frecuenciaPagoDefecto = await _obtenerFrecuenciaPagoDefecto();
     if (!mounted) return;
 
     final data = await showModalBottomSheet<_PrestamoFormData>(
@@ -149,7 +149,7 @@ class _PrestamosPageState extends State<PrestamosPage> {
         esCobrador: _permissionService.esCobrador,
         interesesPermitidos: interesesPermitidos,
         montoMaximoCobrador: montoMaximoCobrador,
-        cuotasDefecto: cuotasDefecto,
+        frecuenciaPagoDefecto: frecuenciaPagoDefecto,
       ),
     );
 
@@ -169,7 +169,7 @@ class _PrestamosPageState extends State<PrestamosPage> {
         clienteId: clienteId,
         monto: data.monto,
         interes: data.interes,
-        cuotas: data.cuotas,
+        frecuenciaPago: data.frecuenciaPago,
       );
       await _cargarDatos();
     } catch (error) {
@@ -202,11 +202,14 @@ class _PrestamosPageState extends State<PrestamosPage> {
     return monto <= 0 ? 500000 : monto;
   }
 
-  Future<int> _obtenerCuotasDefecto() async {
+  Future<String> _obtenerFrecuenciaPagoDefecto() async {
     final value = await _configuracionRepository.obtenerValor(
-      AppConfigKeys.cuotasDefecto,
+      AppConfigKeys.frecuenciaPagoDefecto,
     );
-    return int.tryParse(value ?? '') ?? 24;
+    if (PrestamoFrecuencias.valores.contains(value)) {
+      return value!;
+    }
+    return PrestamoFrecuencias.diario;
   }
 
   Future<void> _cambiarEstado(PrestamoModel prestamo, String estado) async {
@@ -612,7 +615,7 @@ class _PrestamoCard extends StatelessWidget {
                   ),
                   Expanded(
                     child: _DatoPrestamo(
-                      label: 'Cuota',
+                      label: prestamo.cuotaLabel,
                       value: _money(prestamo.cuotaDiaria),
                     ),
                   ),
@@ -742,9 +745,12 @@ class _PrestamoDetalleSheet extends StatelessWidget {
           value: _money(prestamo.totalPagar),
         ),
         _DetalleItem(label: 'Saldo', value: _money(prestamo.saldo)),
-        _DetalleItem(label: 'Cuotas', value: '${prestamo.cuotas}'),
         _DetalleItem(
-          label: 'Cuota diaria',
+          label: 'Frecuencia',
+          value: prestamo.frecuenciaPagoLabel,
+        ),
+        _DetalleItem(
+          label: prestamo.cuotaLabel,
           value: _money(prestamo.cuotaDiaria),
         ),
         _DetalleItem(label: 'Inicio', value: _date(prestamo.fechaInicio)),
@@ -809,7 +815,7 @@ class _PrestamoFormSheet extends StatefulWidget {
     required this.esCobrador,
     required this.interesesPermitidos,
     required this.montoMaximoCobrador,
-    required this.cuotasDefecto,
+    required this.frecuenciaPagoDefecto,
   });
 
   final List<ClienteModel> clientes;
@@ -817,7 +823,7 @@ class _PrestamoFormSheet extends StatefulWidget {
   final bool esCobrador;
   final List<double> interesesPermitidos;
   final double montoMaximoCobrador;
-  final int cuotasDefecto;
+  final String frecuenciaPagoDefecto;
 
   @override
   State<_PrestamoFormSheet> createState() => _PrestamoFormSheetState();
@@ -832,7 +838,6 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
   final _barrioController = TextEditingController();
   final _referenciaController = TextEditingController();
   final _montoController = TextEditingController();
-  late final TextEditingController _cuotasController;
 
   int? _clienteId;
   int? _cobradorId;
@@ -840,10 +845,11 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
   bool _capturandoUbicacion = false;
   LocationCapture? _ubicacion;
   late double _interesSeleccionado;
+  String _frecuenciaPago = PrestamoFrecuencias.diario;
 
   double get _monto => CurrencyFormatter.parse(_montoController.text);
   double get _interes => _interesSeleccionado;
-  int get _cuotas => int.tryParse(_cuotasController.text) ?? 0;
+  int get _cuotas => PrestamoFrecuencias.cuotasPorDefecto(_frecuenciaPago);
   double get _total => _monto + (_monto * _interes / 100);
   double get _cuotaDiaria => _cuotas <= 0 ? 0 : _total / _cuotas;
 
@@ -852,9 +858,7 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
     super.initState();
     _crearCliente = widget.clientes.isEmpty;
     _interesSeleccionado = widget.interesesPermitidos.first;
-    _cuotasController = TextEditingController(
-      text: widget.cuotasDefecto.toString(),
-    );
+    _frecuenciaPago = widget.frecuenciaPagoDefecto;
   }
 
   @override
@@ -866,7 +870,6 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
     _barrioController.dispose();
     _referenciaController.dispose();
     _montoController.dispose();
-    _cuotasController.dispose();
     super.dispose();
   }
 
@@ -930,7 +933,7 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
         clienteNuevo: clienteNuevo,
         monto: _monto,
         interes: _interes,
-        cuotas: _cuotas,
+        frecuenciaPago: _frecuenciaPago,
       ),
     );
   }
@@ -1071,20 +1074,27 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: TextFormField(
-                      controller: _cuotasController,
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => setState(() {}),
+                    child: DropdownButtonFormField<String>(
+                      initialValue: _frecuenciaPago,
+                      items: [
+                        for (final frecuencia in PrestamoFrecuencias.valores)
+                          DropdownMenuItem<String>(
+                            value: frecuencia,
+                            child: Text(PrestamoFrecuencias.label(frecuencia)),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _frecuenciaPago = value ?? _frecuenciaPago;
+                        });
+                      },
                       decoration: const InputDecoration(
-                        labelText: 'Cuotas',
+                        labelText: 'Frecuencia',
                         prefixIcon: Icon(Icons.calendar_month),
                         border: OutlineInputBorder(),
                       ),
                       validator: (value) {
-                        final cuotas = int.tryParse(value ?? '');
-                        if (cuotas == null || cuotas <= 0) {
-                          return 'Inválido';
-                        }
+                        if (value == null) return 'Selecciona';
                         return null;
                       },
                     ),
@@ -1095,7 +1105,7 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
               _CalculoPrestamo(
                 total: _total,
                 cuotaDiaria: _cuotaDiaria,
-                cuotas: _cuotas,
+                frecuenciaPago: _frecuenciaPago,
               ),
               const SizedBox(height: 18),
               SizedBox(
@@ -1281,12 +1291,12 @@ class _CalculoPrestamo extends StatelessWidget {
   const _CalculoPrestamo({
     required this.total,
     required this.cuotaDiaria,
-    required this.cuotas,
+    required this.frecuenciaPago,
   });
 
   final double total;
   final double cuotaDiaria;
-  final int cuotas;
+  final String frecuenciaPago;
 
   @override
   Widget build(BuildContext context) {
@@ -1303,8 +1313,14 @@ class _CalculoPrestamo extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _InfoCalculo(label: 'Total a pagar', value: _money(total)),
-            _InfoCalculo(label: 'Cuota diaria', value: _money(cuotaDiaria)),
-            _InfoCalculo(label: 'Duración', value: '$cuotas días'),
+            _InfoCalculo(
+              label: 'Cuota ${PrestamoFrecuencias.adjetivo(frecuenciaPago)}',
+              value: _money(cuotaDiaria),
+            ),
+            _InfoCalculo(
+              label: 'Frecuencia',
+              value: PrestamoFrecuencias.label(frecuenciaPago),
+            ),
           ],
         ),
       ),
@@ -1368,14 +1384,14 @@ class _PrestamoFormData {
     required this.clienteNuevo,
     required this.monto,
     required this.interes,
-    required this.cuotas,
+    required this.frecuenciaPago,
   });
 
   final int? clienteId;
   final ClienteModel? clienteNuevo;
   final double monto;
   final double interes;
-  final int cuotas;
+  final String frecuenciaPago;
 }
 
 MaterialColor _estadoColor(String estado) {

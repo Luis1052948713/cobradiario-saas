@@ -5,6 +5,7 @@ import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/session/session_manager.dart';
+import '../../prestamos/models/prestamo_model.dart';
 import '../models/configuracion_model.dart';
 
 class ConfiguracionRepository {
@@ -80,9 +81,8 @@ class ConfiguracionRepository {
         fechaActualizacion: now,
       ),
       ConfiguracionModel(
-        clave: AppConfigKeys.cuotasDefecto,
-        valor: '24',
-        tipo: 'numero',
+        clave: AppConfigKeys.frecuenciaPagoDefecto,
+        valor: PrestamoFrecuencias.diario,
         fechaActualizacion: now,
       ),
       ConfiguracionModel(

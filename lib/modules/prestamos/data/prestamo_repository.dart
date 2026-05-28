@@ -33,9 +33,10 @@ class PrestamoRepository {
     required int clienteId,
     required double monto,
     required double interes,
-    required int cuotas,
+    required String frecuenciaPago,
     DateTime? fechaInicio,
   }) async {
+    final cuotas = PrestamoFrecuencias.cuotasPorDefecto(frecuenciaPago);
     if (cuotas <= 0) {
       throw ArgumentError('El numero de cuotas debe ser mayor a cero.');
     }
@@ -43,7 +44,9 @@ class PrestamoRepository {
     final totalPagar = monto + (monto * interes / 100);
     final cuotaDiaria = totalPagar / cuotas;
     final inicio = fechaInicio ?? DateTime.now();
-    final fin = inicio.add(Duration(days: cuotas));
+    final fin = inicio.add(
+      Duration(days: cuotas * PrestamoFrecuencias.diasPorCuota(frecuenciaPago)),
+    );
 
     final prestamo = PrestamoModel(
       clienteId: clienteId,
@@ -55,6 +58,7 @@ class PrestamoRepository {
       saldo: totalPagar,
       fechaInicio: inicio,
       fechaFin: fin,
+      frecuenciaPago: frecuenciaPago,
     );
 
     if (_usaSupabase) {
@@ -99,7 +103,7 @@ class PrestamoRepository {
       modulo: 'prestamos',
       referenciaId: id,
       descripcion:
-          'Prestamo creado cliente=$clienteId monto=$monto interes=$interes cuotas=$cuotas',
+          'Prestamo creado cliente=$clienteId monto=$monto interes=$interes frecuencia=$frecuenciaPago cuotas=$cuotas',
     );
     if (monto >= 1000000) {
       await notificacionRepository.crearParaAdmins(
@@ -264,6 +268,7 @@ class PrestamoRepository {
         'fecha_inicio': prestamo.fechaInicio.toIso8601String(),
         'fecha_fin': prestamo.fechaFin?.toIso8601String(),
         'estado': prestamo.estado,
+        'frecuencia_pago': prestamo.frecuenciaPago,
         'updated_at': DateTime.now().toIso8601String(),
       }).eq('id', uuid);
       await auditoriaRepository.registrar(
@@ -383,6 +388,7 @@ class PrestamoRepository {
           'fecha_inicio': prestamo.fechaInicio.toIso8601String(),
           'fecha_fin': prestamo.fechaFin?.toIso8601String(),
           'estado': prestamo.estado,
+          'frecuencia_pago': prestamo.frecuenciaPago,
         })
         .select()
         .single();
@@ -397,7 +403,7 @@ class PrestamoRepository {
       modulo: 'prestamos',
       referenciaId: id,
       descripcion:
-          'Prestamo creado cliente=${prestamo.clienteId} monto=${prestamo.monto} interes=${prestamo.interes} cuotas=${prestamo.cuotas}',
+          'Prestamo creado cliente=${prestamo.clienteId} monto=${prestamo.monto} interes=${prestamo.interes} frecuencia=${prestamo.frecuenciaPago} cuotas=${prestamo.cuotas}',
     );
     return id;
   }
@@ -419,6 +425,8 @@ class PrestamoRepository {
           ? null
           : DateTime.parse(row['fecha_fin'] as String),
       estado: row['estado'] as String? ?? AppEstados.activo,
+      frecuenciaPago:
+          row['frecuencia_pago'] as String? ?? PrestamoFrecuencias.diario,
     );
   }
 

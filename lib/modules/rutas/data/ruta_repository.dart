@@ -880,6 +880,8 @@ class RutaRepository {
           ? null
           : DateTime.parse(row['fecha_fin'] as String),
       estado: row['estado'] as String? ?? AppEstados.activo,
+      frecuenciaPago:
+          row['frecuencia_pago'] as String? ?? PrestamoFrecuencias.diario,
     );
   }
 }

@@ -6,6 +6,7 @@ import '../../../core/database/database_helper.dart';
 import '../../../core/permissions/permission_service.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../auditoria/data/auditoria_repository.dart';
+import '../../prestamos/models/prestamo_model.dart';
 import '../../suscripcion/pages/suscripcion_page.dart';
 import '../data/configuracion_repository.dart';
 import '../models/configuracion_model.dart';
@@ -32,7 +33,6 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     text: '20,30,40',
   );
   final _montoMaximoCobradorController = TextEditingController(text: '500000');
-  final _cuotasController = TextEditingController(text: '24');
   final _licenciaApiController = TextEditingController();
   final _licenciaClaveController = TextEditingController();
   final _pasarelaNombreController = TextEditingController(text: 'Pago externo');
@@ -42,6 +42,7 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
 
   bool _temaOscuro = false;
   bool _backupAutomatico = false;
+  String _frecuenciaPagoDefecto = PrestamoFrecuencias.diario;
   String? _ultimoBackup;
   bool _sqliteOk = false;
   bool _cargando = true;
@@ -64,7 +65,6 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
     _interesController.dispose();
     _interesesPermitidosController.dispose();
     _montoMaximoCobradorController.dispose();
-    _cuotasController.dispose();
     _licenciaApiController.dispose();
     _licenciaClaveController.dispose();
     _pasarelaNombreController.dispose();
@@ -111,7 +111,12 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
         values[AppConfigKeys.interesesPermitidos] ?? '20,30,40';
     _montoMaximoCobradorController.text =
         values[AppConfigKeys.montoMaximoCobrador] ?? '500000';
-    _cuotasController.text = values[AppConfigKeys.cuotasDefecto] ?? '24';
+    final frecuencia =
+        values[AppConfigKeys.frecuenciaPagoDefecto] ??
+        PrestamoFrecuencias.diario;
+    _frecuenciaPagoDefecto = PrestamoFrecuencias.valores.contains(frecuencia)
+        ? frecuencia
+        : PrestamoFrecuencias.diario;
     _licenciaApiController.text = values[AppConfigKeys.licenciaApiUrl] ?? '';
     _licenciaClaveController.text = values[AppConfigKeys.licenciaClave] ?? '';
     _pasarelaNombreController.text =
@@ -163,9 +168,8 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
       tipo: 'numero',
     );
     await _repository.guardarValor(
-      clave: AppConfigKeys.cuotasDefecto,
-      valor: _cuotasController.text.trim(),
-      tipo: 'numero',
+      clave: AppConfigKeys.frecuenciaPagoDefecto,
+      valor: _frecuenciaPagoDefecto,
     );
     await _repository.guardarValor(
       clave: AppConfigKeys.temaOscuro,
@@ -386,19 +390,30 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
                         },
                       ),
                       const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _cuotasController,
-                        keyboardType: TextInputType.number,
+                      DropdownButtonFormField<String>(
+                        initialValue: _frecuenciaPagoDefecto,
+                        items: [
+                          for (final frecuencia in PrestamoFrecuencias.valores)
+                            DropdownMenuItem<String>(
+                              value: frecuencia,
+                              child: Text(
+                                PrestamoFrecuencias.label(frecuencia),
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _frecuenciaPagoDefecto =
+                                value ?? _frecuenciaPagoDefecto;
+                          });
+                        },
                         decoration: const InputDecoration(
-                          labelText: 'Cuotas por defecto',
+                          labelText: 'Frecuencia por defecto',
                           prefixIcon: Icon(Icons.calendar_month),
                           border: OutlineInputBorder(),
                         ),
                         validator: (value) {
-                          final cuotas = int.tryParse(value ?? '');
-                          if (cuotas == null || cuotas <= 0) {
-                            return 'Ingresa un número válido';
-                          }
+                          if (value == null) return 'Selecciona';
                           return null;
                         },
                       ),

@@ -11,7 +11,7 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
   static const String _databaseName = 'cobra_diario.db';
-  static const int _databaseVersion = 11;
+  static const int _databaseVersion = 12;
 
   Database? _database;
 
@@ -248,6 +248,17 @@ class DatabaseHelper {
         await txn.execute(_createSyncQueueTable);
       });
     }
+
+    if (oldVersion < 12) {
+      await db.transaction((txn) async {
+        await _addColumnIfMissing(
+          txn,
+          table: DatabaseTables.prestamos,
+          column: 'frecuencia_pago',
+          definition: "TEXT NOT NULL DEFAULT 'diario'",
+        );
+      });
+    }
   }
 
   Future<void> _addColumnIfMissing(
@@ -436,6 +447,8 @@ class DatabaseHelper {
       saldo REAL NOT NULL,
       fecha_inicio TEXT NOT NULL,
       fecha_fin TEXT,
+      frecuencia_pago TEXT NOT NULL DEFAULT 'diario'
+        CHECK (frecuencia_pago IN ('diario', 'semanal', 'mensual')),
       estado TEXT NOT NULL DEFAULT 'activo'
         CHECK (estado IN (
           'activo',

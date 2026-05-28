@@ -415,7 +415,7 @@ class _PrestamosResumen extends StatelessWidget {
                           CurrencyFormatter.pesos(prestamo.saldo),
                         ),
                         _MiniDato(
-                          'Cuota',
+                          prestamo.cuotaLabel,
                           CurrencyFormatter.pesos(prestamo.cuotaDiaria),
                         ),
                         _MiniDato('Inicio', _date(prestamo.fechaInicio)),

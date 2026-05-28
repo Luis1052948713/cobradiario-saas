@@ -501,7 +501,7 @@ class _PendienteCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: _DatoCobro(
-                    label: 'Cuota sugerida',
+                    label: '${prestamo.cuotaLabel} sugerida',
                     value: _money(prestamo.cuotaDiaria),
                   ),
                 ),
@@ -884,7 +884,7 @@ class _PrestamoCobroResumen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             _InfoResumen(
-              label: 'Cuota sugerida',
+              label: '${prestamo.cuotaLabel} sugerida',
               value: _money(prestamo.cuotaDiaria),
             ),
             _InfoResumen(label: 'Saldo actual', value: _money(prestamo.saldo)),

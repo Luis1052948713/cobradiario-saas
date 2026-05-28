@@ -6,6 +6,7 @@ import '../../../core/utils/currency_formatter.dart';
 import '../../clientes/models/cliente_model.dart';
 import '../../cobros/data/cobro_repository.dart';
 import '../../cobros/models/cobro_model.dart';
+import '../../prestamos/models/prestamo_model.dart';
 import '../../usuarios/data/usuario_repository.dart';
 import '../../usuarios/models/usuario_model.dart';
 import '../data/ruta_repository.dart';
@@ -1148,9 +1149,7 @@ class _VisitaDialogState extends State<_VisitaDialog> {
             children: [
               if (prestamo != null) ...[
                 _CobroRutaResumen(
-                  saldo: prestamo.saldo,
-                  cuotaDiaria: prestamo.cuotaDiaria,
-                  estado: prestamo.estado,
+                  prestamo: prestamo,
                   historial: widget.historial,
                 ),
                 const SizedBox(height: 10),
@@ -1269,15 +1268,11 @@ class _VisitaDialogState extends State<_VisitaDialog> {
 
 class _CobroRutaResumen extends StatelessWidget {
   const _CobroRutaResumen({
-    required this.saldo,
-    required this.cuotaDiaria,
-    required this.estado,
+    required this.prestamo,
     required this.historial,
   });
 
-  final double saldo;
-  final double cuotaDiaria;
-  final String estado;
+  final PrestamoModel prestamo;
   final List<CobroModel> historial;
 
   @override
@@ -1291,13 +1286,13 @@ class _CobroRutaResumen extends StatelessWidget {
           children: [
             _ResumenLinea(
               label: 'Saldo pendiente',
-              value: CurrencyFormatter.pesos(saldo),
+              value: CurrencyFormatter.pesos(prestamo.saldo),
             ),
             _ResumenLinea(
-              label: 'Cuota diaria',
-              value: CurrencyFormatter.pesos(cuotaDiaria),
+              label: prestamo.cuotaLabel,
+              value: CurrencyFormatter.pesos(prestamo.cuotaDiaria),
             ),
-            _ResumenLinea(label: 'Estado', value: estado),
+            _ResumenLinea(label: 'Estado', value: prestamo.estado),
             const SizedBox(height: 6),
             Text(
               'Historial reciente',

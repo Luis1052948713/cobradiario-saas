@@ -13,6 +13,7 @@ class PrestamoModel {
     required this.fechaInicio,
     this.fechaFin,
     this.estado = AppEstados.activo,
+    this.frecuenciaPago = PrestamoFrecuencias.diario,
   });
 
   final int? id;
@@ -26,9 +27,13 @@ class PrestamoModel {
   final DateTime fechaInicio;
   final DateTime? fechaFin;
   final String estado;
+  final String frecuenciaPago;
 
   bool get estaActivo => estado == AppEstados.activo;
   bool get estaPagado => estado == AppEstados.pagado;
+  String get frecuenciaPagoLabel => PrestamoFrecuencias.label(frecuenciaPago);
+  String get cuotaLabel =>
+      'Cuota ${PrestamoFrecuencias.adjetivo(frecuenciaPago)}';
 
   PrestamoModel copyWith({
     int? id,
@@ -42,6 +47,7 @@ class PrestamoModel {
     DateTime? fechaInicio,
     DateTime? fechaFin,
     String? estado,
+    String? frecuenciaPago,
   }) {
     return PrestamoModel(
       id: id ?? this.id,
@@ -55,6 +61,7 @@ class PrestamoModel {
       fechaInicio: fechaInicio ?? this.fechaInicio,
       fechaFin: fechaFin ?? this.fechaFin,
       estado: estado ?? this.estado,
+      frecuenciaPago: frecuenciaPago ?? this.frecuenciaPago,
     );
   }
 
@@ -71,6 +78,7 @@ class PrestamoModel {
       'fecha_inicio': fechaInicio.toIso8601String(),
       'fecha_fin': fechaFin?.toIso8601String(),
       'estado': estado,
+      'frecuencia_pago': frecuenciaPago,
     };
   }
 
@@ -89,6 +97,50 @@ class PrestamoModel {
           ? null
           : DateTime.parse(map['fecha_fin'] as String),
       estado: map['estado'] as String,
+      frecuenciaPago:
+          map['frecuencia_pago'] as String? ?? PrestamoFrecuencias.diario,
     );
+  }
+}
+
+class PrestamoFrecuencias {
+  const PrestamoFrecuencias._();
+
+  static const diario = 'diario';
+  static const semanal = 'semanal';
+  static const mensual = 'mensual';
+
+  static const valores = [diario, semanal, mensual];
+
+  static int cuotasPorDefecto(String frecuencia) {
+    return switch (frecuencia) {
+      semanal => 4,
+      mensual => 1,
+      _ => 24,
+    };
+  }
+
+  static int diasPorCuota(String frecuencia) {
+    return switch (frecuencia) {
+      semanal => 7,
+      mensual => 30,
+      _ => 1,
+    };
+  }
+
+  static String label(String frecuencia) {
+    return switch (frecuencia) {
+      semanal => 'Semanal',
+      mensual => 'Mensual',
+      _ => 'Diario',
+    };
+  }
+
+  static String adjetivo(String frecuencia) {
+    return switch (frecuencia) {
+      semanal => 'semanal',
+      mensual => 'mensual',
+      _ => 'diaria',
+    };
   }
 }

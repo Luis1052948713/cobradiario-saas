@@ -26,7 +26,7 @@ class AppConfigKeys {
   static const String empresaNombre = 'empresa_nombre';
   static const String empresaTelefono = 'empresa_telefono';
   static const String empresaDireccion = 'empresa_direccion';
-  static const String cuotasDefecto = 'cuotas_defecto';
+  static const String frecuenciaPagoDefecto = 'frecuencia_pago_defecto';
   static const String interesesPermitidos = 'intereses_permitidos';
   static const String montoMaximoCobrador = 'monto_maximo_cobrador';
   static const String backupAutomatico = 'backup_automatico';
