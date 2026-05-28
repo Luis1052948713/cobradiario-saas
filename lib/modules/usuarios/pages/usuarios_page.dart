@@ -36,13 +36,22 @@ class _UsuariosPageState extends State<UsuariosPage> {
 
   Future<void> _cargarUsuarios() async {
     setState(() => _cargando = true);
-    final usuarios = await _repository.listar();
 
-    if (!mounted) return;
-    setState(() {
-      _usuarios = usuarios;
-      _cargando = false;
-    });
+    try {
+      final usuarios = await _repository.listar();
+
+      if (!mounted) return;
+      setState(() {
+        _usuarios = usuarios;
+        _cargando = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudieron cargar los usuarios: $error')),
+      );
+    }
   }
 
   List<UsuarioModel> get _usuariosFiltrados {

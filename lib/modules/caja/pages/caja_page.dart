@@ -38,35 +38,45 @@ class _CajaPageState extends State<CajaPage> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    if (_esAdmin) {
-      final resumenes = await _repository.resumenesHoy();
-      final cajas = await _repository.cajasRecientes();
-      final solicitudes = await _repository.solicitudesPendientes();
-      final cierres = await _repository.cierresRecientes();
-      final movimientos = await _repository.movimientos();
-      final capital = await _repository.resumenCapital();
-      final movimientosCapital = await _repository.movimientosCapital();
+    try {
+      if (_esAdmin) {
+        final resumenes = await _repository.resumenesHoy();
+        final cajas = await _repository.cajasRecientes();
+        final solicitudes = await _repository.solicitudesPendientes();
+        final cierres = await _repository.cierresRecientes();
+        final movimientos = await _repository.movimientos();
+        final capital = await _repository.resumenCapital();
+        final movimientosCapital = await _repository.movimientosCapital();
+        if (!mounted) return;
+        setState(() {
+          _capital = capital;
+          _resumenes = resumenes;
+          _cajas = cajas;
+          _solicitudes = solicitudes;
+          _cierres = cierres;
+          _movimientos = movimientos;
+          _movimientosCapital = movimientosCapital;
+          _cargando = false;
+        });
+      } else {
+        final usuario = SessionManager.instance.usuarioActual;
+        final resumen = await _repository.resumenDiario(usuario!.id!);
+        final movimientos = await _repository.movimientos(
+          cobradorId: usuario.id,
+        );
+        if (!mounted) return;
+        setState(() {
+          _miResumen = resumen;
+          _movimientos = movimientos;
+          _cargando = false;
+        });
+      }
+    } catch (error) {
       if (!mounted) return;
-      setState(() {
-        _capital = capital;
-        _resumenes = resumenes;
-        _cajas = cajas;
-        _solicitudes = solicitudes;
-        _cierres = cierres;
-        _movimientos = movimientos;
-        _movimientosCapital = movimientosCapital;
-        _cargando = false;
-      });
-    } else {
-      final usuario = SessionManager.instance.usuarioActual;
-      final resumen = await _repository.resumenDiario(usuario!.id!);
-      final movimientos = await _repository.movimientos(cobradorId: usuario.id);
-      if (!mounted) return;
-      setState(() {
-        _miResumen = resumen;
-        _movimientos = movimientos;
-        _cargando = false;
-      });
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cargar caja: $error')),
+      );
     }
   }
 

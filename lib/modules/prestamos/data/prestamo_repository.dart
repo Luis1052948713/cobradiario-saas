@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../core/constants/app_constants.dart';
@@ -344,7 +345,7 @@ class PrestamoRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
   }
 
   Future<int> _crearCalculadoOnline(PrestamoModel prestamo) async {
@@ -422,7 +423,9 @@ class PrestamoRepository {
   }
 
   Future<void> _cachePrestamos(List<PrestamoModel> prestamos) async {
+    if (kIsWeb) return;
     if (prestamos.isEmpty) return;
+
     final db = await _db;
     for (final prestamo in prestamos) {
       final id = prestamo.id;

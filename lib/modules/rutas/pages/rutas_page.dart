@@ -42,18 +42,26 @@ class _RutasPageState extends State<RutasPage> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    final rutas = await _repository.listar();
-    final usuarios = await _usuarioRepository.listar();
-    if (!mounted) return;
-    setState(() {
-      _rutas = rutas;
-      _usuarios = {
-        for (final usuario in usuarios)
-          if (usuario.id != null) usuario.id!: usuario,
-      };
-      _cargando = false;
-    });
-    _abrirRutaInicial();
+    try {
+      final rutas = await _repository.listar();
+      final usuarios = await _usuarioRepository.listar();
+      if (!mounted) return;
+      setState(() {
+        _rutas = rutas;
+        _usuarios = {
+          for (final usuario in usuarios)
+            if (usuario.id != null) usuario.id!: usuario,
+        };
+        _cargando = false;
+      });
+      _abrirRutaInicial();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudieron cargar las rutas: $error')),
+      );
+    }
   }
 
   void _abrirRutaInicial() {

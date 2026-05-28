@@ -320,6 +320,8 @@ class SuscripcionRepository {
   }
 
   Future<List<Map<String, Object?>>> eventos() async {
+    if (kIsWeb) return const [];
+
     final db = await DatabaseHelper.instance.database;
     return db.rawQuery('''
       SELECT le.*, u.nombre AS usuario_nombre

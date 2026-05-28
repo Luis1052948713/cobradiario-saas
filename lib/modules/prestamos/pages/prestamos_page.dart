@@ -49,19 +49,27 @@ class _PrestamosPageState extends State<PrestamosPage> {
   Future<void> _cargarDatos() async {
     setState(() => _cargando = true);
 
-    final cobradorId = _permissionService.cobradorScope();
-    final prestamos = cobradorId == null
-        ? await _prestamoRepository.listar()
-        : await _prestamoRepository.listarPorCobrador(cobradorId);
-    final clientes = await _clienteRepository.listar(cobradorId: cobradorId);
+    try {
+      final cobradorId = _permissionService.cobradorScope();
+      final prestamos = cobradorId == null
+          ? await _prestamoRepository.listar()
+          : await _prestamoRepository.listarPorCobrador(cobradorId);
+      final clientes = await _clienteRepository.listar(cobradorId: cobradorId);
 
-    if (!mounted) return;
-    setState(() {
-      _prestamos = prestamos;
-      _clientes = clientes;
-      _cargando = false;
-    });
-    _mostrarDetalleInicial();
+      if (!mounted) return;
+      setState(() {
+        _prestamos = prestamos;
+        _clientes = clientes;
+        _cargando = false;
+      });
+      _mostrarDetalleInicial();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudieron cargar los prestamos: $error')),
+      );
+    }
   }
 
   void _mostrarDetalleInicial() {

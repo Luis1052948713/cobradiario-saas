@@ -30,6 +30,7 @@ class _ClientesPageState extends State<ClientesPage> {
   Map<int, UsuarioModel> _usuarios = {};
   _FiltroClientes _filtro = _FiltroClientes.todos;
   bool _cargando = true;
+  String? _error;
   bool _detalleInicialMostrado = false;
 
   @override
@@ -45,25 +46,36 @@ class _ClientesPageState extends State<ClientesPage> {
   }
 
   Future<void> _cargarClientes() async {
-    setState(() => _cargando = true);
-
-    final cobradorId = _permissionService.cobradorScope();
-    final query = _buscarController.text.trim();
-    final clientes = query.isEmpty
-        ? await _clienteRepository.listar(cobradorId: cobradorId)
-        : await _clienteRepository.buscar(query, cobradorId: cobradorId);
-    final usuarios = await _usuarioRepository.listar();
-
-    if (!mounted) return;
     setState(() {
-      _clientes = clientes;
-      _usuarios = {
-        for (final usuario in usuarios)
-          if (usuario.id != null) usuario.id!: usuario,
-      };
-      _cargando = false;
+      _cargando = true;
+      _error = null;
     });
-    _mostrarDetalleInicial();
+
+    try {
+      final cobradorId = _permissionService.cobradorScope();
+      final query = _buscarController.text.trim();
+      final clientes = query.isEmpty
+          ? await _clienteRepository.listar(cobradorId: cobradorId)
+          : await _clienteRepository.buscar(query, cobradorId: cobradorId);
+      final usuarios = await _usuarioRepository.listar();
+
+      if (!mounted) return;
+      setState(() {
+        _clientes = clientes;
+        _usuarios = {
+          for (final usuario in usuarios)
+            if (usuario.id != null) usuario.id!: usuario,
+        };
+        _cargando = false;
+      });
+      _mostrarDetalleInicial();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'No se pudieron cargar los clientes: $error';
+        _cargando = false;
+      });
+    }
   }
 
   void _mostrarDetalleInicial() {
@@ -269,6 +281,8 @@ class _ClientesPageState extends State<ClientesPage> {
                 padding: EdgeInsets.only(top: 80),
                 child: Center(child: CircularProgressIndicator()),
               )
+            else if (_error != null)
+              _ClientesError(message: _error!, onRetry: _cargarClientes)
             else if (clientes.isEmpty)
               const _EmptyClientes()
             else
@@ -286,6 +300,51 @@ class _ClientesPageState extends State<ClientesPage> {
                   onHistorial: () => _verHistorialCliente(cliente),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ClientesError extends StatelessWidget {
+  const _ClientesError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        border: Border.all(color: Colors.red.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.error_outline, color: Colors.red.shade700),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    message,
+                    style: TextStyle(color: Colors.red.shade900),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: onRetry,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Reintentar'),
+            ),
           ],
         ),
       ),

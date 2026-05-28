@@ -227,7 +227,7 @@ class NotificacionRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
   }
 
   NotificacionModel _fromOnline(Map<String, dynamic> row) {

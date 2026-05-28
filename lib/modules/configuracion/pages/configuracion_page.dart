@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
@@ -76,16 +77,26 @@ class _ConfiguracionPageState extends State<ConfiguracionPage> {
   Future<void> _cargarConfiguraciones() async {
     setState(() => _cargando = true);
 
-    final configs = await _repository.listar();
-    final sqliteOk = await DatabaseHelper.instance.testConnection();
+    try {
+      final configs = await _repository.listar();
+      final sqliteOk = kIsWeb
+          ? false
+          : await DatabaseHelper.instance.testConnection();
 
-    _aplicarConfiguraciones(configs);
+      _aplicarConfiguraciones(configs);
 
-    if (!mounted) return;
-    setState(() {
-      _sqliteOk = sqliteOk;
-      _cargando = false;
-    });
+      if (!mounted) return;
+      setState(() {
+        _sqliteOk = sqliteOk;
+        _cargando = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cargar configuracion: $error')),
+      );
+    }
   }
 
   void _aplicarConfiguraciones(List<ConfiguracionModel> configs) {

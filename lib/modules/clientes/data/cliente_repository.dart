@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../core/constants/app_constants.dart';
@@ -262,7 +263,7 @@ class ClienteRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
   }
 
   ClienteModel _fromOnline(Map<String, dynamic> row) {
@@ -290,7 +291,9 @@ class ClienteRepository {
   }
 
   Future<void> _cacheClientes(List<ClienteModel> clientes) async {
+    if (kIsWeb) return;
     if (clientes.isEmpty) return;
+
     final db = await _db;
     for (final cliente in clientes) {
       final id = cliente.id;

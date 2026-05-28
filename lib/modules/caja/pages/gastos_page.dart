@@ -26,14 +26,22 @@ class _GastosPageState extends State<GastosPage> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    final gastos = await _repository.gastos(
-      cobradorId: _permissionService.cobradorScope(),
-    );
-    if (!mounted) return;
-    setState(() {
-      _gastos = gastos;
-      _cargando = false;
-    });
+    try {
+      final gastos = await _repository.gastos(
+        cobradorId: _permissionService.cobradorScope(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _gastos = gastos;
+        _cargando = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudieron cargar los gastos: $error')),
+      );
+    }
   }
 
   @override

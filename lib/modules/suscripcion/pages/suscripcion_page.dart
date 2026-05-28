@@ -37,32 +37,40 @@ class _SuscripcionPageState extends State<SuscripcionPage> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    final resumen = await _repository.obtenerResumen();
-    final eventos = await _repository.eventos();
-    final pasarelaNombre = await _configuracionRepository.obtenerValor(
-      AppConfigKeys.pasarelaPagoNombre,
-    );
-    final pasarelaUrl = await _configuracionRepository.obtenerValor(
-      AppConfigKeys.pasarelaPagoUrl,
-    );
-    final nequiTitular = await _configuracionRepository.obtenerValor(
-      AppConfigKeys.nequiTitular,
-    );
-    final nequiTelefono = await _configuracionRepository.obtenerValor(
-      AppConfigKeys.nequiTelefono,
-    );
-    if (!mounted) return;
-    setState(() {
-      _resumen = resumen;
-      _eventos = eventos;
-      _pasarelaNombre = pasarelaNombre?.trim().isNotEmpty == true
-          ? pasarelaNombre!.trim()
-          : 'Pago externo';
-      _pasarelaUrl = pasarelaUrl?.trim() ?? '';
-      _nequiTitular = nequiTitular?.trim() ?? '';
-      _nequiTelefono = nequiTelefono?.trim() ?? '';
-      _cargando = false;
-    });
+    try {
+      final resumen = await _repository.obtenerResumen();
+      final eventos = await _repository.eventos();
+      final pasarelaNombre = await _configuracionRepository.obtenerValor(
+        AppConfigKeys.pasarelaPagoNombre,
+      );
+      final pasarelaUrl = await _configuracionRepository.obtenerValor(
+        AppConfigKeys.pasarelaPagoUrl,
+      );
+      final nequiTitular = await _configuracionRepository.obtenerValor(
+        AppConfigKeys.nequiTitular,
+      );
+      final nequiTelefono = await _configuracionRepository.obtenerValor(
+        AppConfigKeys.nequiTelefono,
+      );
+      if (!mounted) return;
+      setState(() {
+        _resumen = resumen;
+        _eventos = eventos;
+        _pasarelaNombre = pasarelaNombre?.trim().isNotEmpty == true
+            ? pasarelaNombre!.trim()
+            : 'Pago externo';
+        _pasarelaUrl = pasarelaUrl?.trim() ?? '';
+        _nequiTitular = nequiTitular?.trim() ?? '';
+        _nequiTelefono = nequiTelefono?.trim() ?? '';
+        _cargando = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cargar la suscripcion: $error')),
+      );
+    }
   }
 
   Future<void> _registrarPago() async {

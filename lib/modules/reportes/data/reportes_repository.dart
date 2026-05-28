@@ -178,7 +178,7 @@ class ReportesRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
   }
 
   Future<ReporteCobros> _reportePorRangoOnline({

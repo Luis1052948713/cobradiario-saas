@@ -6,6 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
 import '../../../core/services/offline_sync_service.dart';
+import '../../../core/services/online_id_mapper.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/session/session_manager.dart';
 import '../../../core/utils/currency_formatter.dart';
@@ -25,6 +26,8 @@ class CobroRepository {
   Future<Database> get _db => DatabaseHelper.instance.database;
 
   Future<int> registrarCobro(CobroModel cobro) async {
+    if (_usaSupabase) return _registrarCobroOnline(cobro);
+
     final db = await _db;
     await controlFinancieroRepository.validarCobradorPuedeOperar(
       cobro.cobradorId,
@@ -166,6 +169,16 @@ class CobroRepository {
   }
 
   Future<List<CobroModel>> listar({int? prestamoId, int? cobradorId}) async {
+    if (_usaSupabase) {
+      dynamic query = SupabaseService.requireClient.from('cobros').select();
+      final prestamoUuid = OnlineIdMapper.instance.uuidFor(prestamoId);
+      final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
+      if (prestamoUuid != null) query = query.eq('prestamo_id', prestamoUuid);
+      if (cobradorUuid != null) query = query.eq('cobrador_id', cobradorUuid);
+      final rows = await query.order('fecha_pago', ascending: false);
+      return rows.map<CobroModel>(_fromOnline).toList();
+    }
+
     final db = await _db;
     final whereParts = <String>[];
     final args = <Object?>[];
@@ -201,6 +214,91 @@ class CobroRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
+  }
+
+  Future<int> _registrarCobroOnline(CobroModel cobro) async {
+    final perfil = SessionManager.instance.perfilActual!;
+    final prestamoUuid = OnlineIdMapper.instance.uuidFor(cobro.prestamoId);
+    final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobro.cobradorId);
+    if (prestamoUuid == null || cobradorUuid == null) {
+      throw StateError('Falta relacion online para prestamo o cobrador.');
+    }
+
+    final prestamo = await SupabaseService.requireClient
+        .from('prestamos')
+        .select('id, saldo, estado, cliente_id')
+        .eq('id', prestamoUuid)
+        .single();
+    final estado = prestamo['estado'] as String;
+    final saldo = (prestamo['saldo'] as num).toDouble();
+    if (estado != AppEstados.activo && estado != AppEstados.atrasado) {
+      throw StateError('Solo se pueden cobrar prestamos activos o atrasados.');
+    }
+    if (cobro.monto < 0) {
+      throw ArgumentError('El monto del cobro no puede ser negativo.');
+    }
+    if (cobro.monto > saldo) {
+      throw ArgumentError('El cobro no puede superar el saldo pendiente.');
+    }
+
+    final saldoActual = (saldo - cobro.monto).clamp(0, double.infinity).toDouble();
+    final nuevoEstado = saldoActual <= 0 ? AppEstados.pagado : estado;
+    final row = await SupabaseService.requireClient
+        .from('cobros')
+        .insert({
+          'empresa_id': perfil.companyId,
+          'prestamo_id': prestamoUuid,
+          'cobrador_id': cobradorUuid,
+          'monto': cobro.monto,
+          'saldo_anterior': saldo,
+          'saldo_actual': saldoActual,
+          'observacion': cobro.observacion,
+          'fecha_pago': cobro.fechaPago.toIso8601String(),
+          'estado': cobro.estado,
+        })
+        .select()
+        .single();
+
+    await SupabaseService.requireClient.from('prestamos').update({
+      'saldo': saldoActual,
+      'estado': nuevoEstado,
+      'updated_at': DateTime.now().toIso8601String(),
+    }).eq('id', prestamoUuid);
+
+    await controlFinancieroRepository.aumentarCobroOnline(
+      cobradorId: cobro.cobradorId,
+      monto: cobro.monto,
+    );
+
+    final id = OnlineIdMapper.instance.localIdFor(row['id'] as String);
+    if (cobro.monto > 0) {
+      await notificacionRepository.crear(
+        usuarioId: cobro.cobradorId,
+        titulo: 'Cobro registrado',
+        mensaje: 'Cobro exitoso por ${CurrencyFormatter.pesos(cobro.monto)}.',
+        tipo: NotificacionTipos.exito,
+        modulo: 'cobros',
+        referenciaId: id,
+      );
+    }
+    return id;
+  }
+
+  CobroModel _fromOnline(Map<String, dynamic> row) {
+    final uuid = row['id'] as String;
+    final prestamoUuid = row['prestamo_id'] as String;
+    final cobradorUuid = row['cobrador_id'] as String;
+    return CobroModel(
+      id: OnlineIdMapper.instance.localIdFor(uuid),
+      prestamoId: OnlineIdMapper.instance.localIdFor(prestamoUuid),
+      cobradorId: OnlineIdMapper.instance.localIdFor(cobradorUuid),
+      monto: (row['monto'] as num).toDouble(),
+      saldoAnterior: (row['saldo_anterior'] as num?)?.toDouble(),
+      saldoActual: (row['saldo_actual'] as num?)?.toDouble(),
+      observacion: row['observacion'] as String?,
+      fechaPago: DateTime.parse(row['fecha_pago'] as String),
+      estado: row['estado'] as String? ?? 'registrado',
+    );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'database_tables.dart';
@@ -15,6 +16,12 @@ class DatabaseHelper {
   Database? _database;
 
   Future<Database> get database async {
+    if (kIsWeb) {
+      throw UnsupportedError(
+        'SQLite local no esta disponible en Flutter Web. Usa Supabase.',
+      );
+    }
+
     if (_database != null) {
       return _database!;
     }
@@ -369,6 +376,8 @@ class DatabaseHelper {
   }
 
   Future<bool> testConnection() async {
+    if (kIsWeb) return false;
+
     final db = await database;
     final result = await db.rawQuery('SELECT 1 AS connected');
 

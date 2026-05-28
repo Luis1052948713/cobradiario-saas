@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../modules/caja/data/control_financiero_repository.dart';
@@ -32,6 +33,8 @@ class OfflineSyncService {
   }
 
   Future<int> pendientesCount() async {
+    if (kIsWeb) return 0;
+
     final db = await DatabaseHelper.instance.database;
     final rows = await db.rawQuery(
       '''
@@ -45,6 +48,7 @@ class OfflineSyncService {
   }
 
   Future<void> sincronizarPendientes({int limit = 50}) async {
+    if (kIsWeb) return;
     if (!_puedeSincronizar) return;
 
     final db = await DatabaseHelper.instance.database;

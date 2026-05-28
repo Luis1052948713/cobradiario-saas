@@ -2809,7 +2809,7 @@ class ControlFinancieroRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
   }
 
   Future<void> _registrarCapitalInicialOnline({

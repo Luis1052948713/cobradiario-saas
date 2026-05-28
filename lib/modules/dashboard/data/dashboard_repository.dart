@@ -239,7 +239,7 @@ class DashboardRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
   }
 
   Future<DashboardResumen> _obtenerResumenOnline({int? cobradorId}) async {

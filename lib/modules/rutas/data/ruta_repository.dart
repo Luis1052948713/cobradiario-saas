@@ -715,7 +715,7 @@ class RutaRepository {
 
   bool get _usaSupabase {
     return SupabaseService.isInitialized &&
-        SessionManager.instance.perfilActual?.companyId != null;
+        SessionManager.instance.perfilActual != null;
   }
 
   Future<List<RutaClienteDetalle>> _listarClientesRutaOnline(int rutaId) async {
