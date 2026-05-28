@@ -11,7 +11,7 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
   static const String _databaseName = 'cobra_diario.db';
-  static const int _databaseVersion = 12;
+  static const int _databaseVersion = 13;
 
   Database? _database;
 
@@ -897,4 +897,38 @@ class DatabaseHelper {
       synced_at TEXT
     )
   ''';
+  static const String _createLocalAuthSessionTable =
+      '''
+  CREATE TABLE IF NOT EXISTS ${DatabaseTables.localAuthSession} (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    auth_id TEXT NOT NULL,
+    empresa_id TEXT,
+    nombre TEXT NOT NULL,
+    email TEXT NOT NULL,
+    usuario TEXT,
+    rol TEXT NOT NULL,
+    estado TEXT NOT NULL,
+    saldo_disponible REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    cached_at TEXT NOT NULL
+  )
+''';
+
+  static const String _createOnlineIdMapTable =
+      '''
+  CREATE TABLE IF NOT EXISTS ${DatabaseTables.onlineIdMap} (
+    tabla TEXT NOT NULL,
+    uuid TEXT NOT NULL,
+    local_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (tabla, uuid)
+  )
+''';
+
+  static const String _createOnlineIdMapLocalIndex =
+      '''
+  CREATE INDEX IF NOT EXISTS idx_online_id_map_local
+  ON ${DatabaseTables.onlineIdMap} (tabla, local_id)
+''';
 }

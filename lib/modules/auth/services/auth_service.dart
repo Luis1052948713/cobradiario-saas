@@ -6,6 +6,7 @@ import '../../../core/constants/app_constants.dart';
 import '../../../core/database/database_helper.dart';
 import '../../../core/database/database_tables.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../../core/services/online_id_mapper.dart';
 import '../../../core/session/session_manager.dart';
 import '../models/auth_profile.dart';
 
@@ -50,21 +51,27 @@ class AuthService {
 
   Future<AuthProfile?> restoreSession() async {
     if (!SupabaseService.isConfigured || !SupabaseService.isInitialized) {
-      SessionManager.instance.cerrarSesion();
-      return null;
+      return _restoreCachedSession();
     }
 
-    final user = _client.auth.currentUser;
-    final session = _client.auth.currentSession;
-    if (user == null || session == null) {
-      SessionManager.instance.cerrarSesion();
-      return null;
-    }
+    try {
+      final user = _client.auth.currentUser;
+      final session = _client.auth.currentSession;
 
-    final profile = await _loadProfileForUser(user);
-    SessionManager.instance.iniciarSesion(profile);
-    await _cacheProfile(profile);
-    return profile;
+      if (user == null || session == null) {
+        return _restoreCachedSession();
+      }
+
+      final profile = await _loadProfileForUser(user);
+
+      SessionManager.instance.iniciarSesion(profile);
+
+      await _cacheProfile(profile);
+
+      return profile;
+    } catch (_) {
+      return _restoreCachedSession();
+    }
   }
 
   Future<AuthProfile> login({
@@ -116,10 +123,7 @@ class AuthService {
       final response = await _client.auth.signUp(
         email: email.trim(),
         password: password,
-        data: {
-          'nombre': adminName.trim(),
-          'empresa': companyName.trim(),
-        },
+        data: {'nombre': adminName.trim(), 'empresa': companyName.trim()},
       );
 
       final user = response.user;
@@ -163,6 +167,12 @@ class AuthService {
     if (SupabaseService.isInitialized) {
       await SupabaseService.requireClient.auth.signOut();
     }
+
+    if (!kIsWeb) {
+      final db = await DatabaseHelper.instance.database;
+      await db.delete(DatabaseTables.localAuthSession);
+    }
+
     SessionManager.instance.cerrarSesion();
   }
 
@@ -216,19 +226,92 @@ class AuthService {
 
     final usuario = profile.toLegacyUsuario();
     final id = usuario.id;
+
     if (id == null) return;
 
     final db = await DatabaseHelper.instance.database;
-    await db.insert(
-      DatabaseTables.usuarios,
-      usuario.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
-    await db.update(
-      DatabaseTables.usuarios,
-      usuario.toMap(),
+
+    await db.transaction((txn) async {
+      await txn.insert(
+        DatabaseTables.usuarios,
+        usuario.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+
+      await txn.update(
+        DatabaseTables.usuarios,
+        usuario.toMap(),
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+
+      await txn.insert(
+        DatabaseTables.localAuthSession,
+        {
+          'id': 1,
+          'auth_id': profile.id,
+          'empresa_id': profile.companyId,
+          'nombre': profile.nombre,
+          'email': profile.email,
+          'usuario': profile.usuario,
+          'rol': profile.rol,
+          'estado': profile.estado,
+          'saldo_disponible': profile.saldoDisponible,
+          'created_at': profile.createdAt.toIso8601String(),
+          'cached_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+
+      await OnlineIdMapper.instance.rememberPersisted(
+        tabla: DatabaseTables.usuarios,
+        uuid: profile.id,
+        localId: id,
+        executor: txn,
+      );
+    });
+  }
+
+  Future<AuthProfile?> _restoreCachedSession() async {
+    if (kIsWeb) return null;
+
+    final db = await DatabaseHelper.instance.database;
+
+    await OnlineIdMapper.instance.hydrateFromLocalDatabase();
+
+    final rows = await db.query(
+      DatabaseTables.localAuthSession,
       where: 'id = ?',
-      whereArgs: [id],
+      whereArgs: [1],
+      limit: 1,
     );
+
+    if (rows.isEmpty) {
+      SessionManager.instance.cerrarSesion(limpiarMapeoOnline: false);
+      return null;
+    }
+
+    final row = rows.first;
+
+    final profile = AuthProfile(
+      id: row['auth_id'] as String,
+      companyId: row['empresa_id'] as String?,
+      nombre: row['nombre'] as String,
+      email: row['email'] as String,
+      usuario: row['usuario'] as String?,
+      rol: row['rol'] as String,
+      estado: row['estado'] as String,
+      saldoDisponible: (row['saldo_disponible'] as num?)?.toDouble() ?? 0,
+      createdAt: DateTime.parse(row['created_at'] as String),
+    );
+
+    if (!profile.estaActivo) {
+      SessionManager.instance.cerrarSesion(limpiarMapeoOnline: false);
+      return null;
+    }
+
+    SessionManager.instance.iniciarSesion(profile);
+
+    return profile;
   }
 }

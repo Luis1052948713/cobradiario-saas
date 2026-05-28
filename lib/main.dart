@@ -1,20 +1,31 @@
 import 'package:flutter/foundation.dart';
+
 import 'package:flutter/material.dart';
 
 import 'core/database/database_helper.dart';
 import 'core/navigation/app_route_observer.dart';
+
+import 'core/services/offline_sync_service.dart';
+import 'core/services/online_id_mapper.dart';
 import 'core/services/supabase_service.dart';
+
 import 'modules/auth/pages/auth_gate.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   final isSupabaseConnected = await SupabaseService.initializeIfConfigured();
+
   debugPrint('Supabase habilitado: $isSupabaseConnected');
 
   if (!kIsWeb) {
     final isDatabaseConnected = await DatabaseHelper.instance.testConnection();
+
     debugPrint('SQLite conectado: $isDatabaseConnected');
+
+    await OnlineIdMapper.instance.hydrateFromLocalDatabase();
+
+    OfflineSyncService.instance.iniciarSincronizacionAutomatica();
   }
 
   runApp(const CobraDiarioApp());
@@ -28,7 +39,6 @@ class CobraDiarioApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Cobra Diario',
-      theme: ThemeData(primarySwatch: Colors.green),
       navigatorObservers: [appRouteObserver],
       home: const AuthGate(),
     );
