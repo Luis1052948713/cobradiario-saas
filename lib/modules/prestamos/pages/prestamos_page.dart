@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/permissions/permission_service.dart';
+import '../../../core/services/location_capture_service.dart';
+import '../../../core/session/session_manager.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../configuracion/data/configuracion_repository.dart';
 import '../../clientes/data/cliente_repository.dart';
 import '../../clientes/models/cliente_model.dart';
 import '../../historial_financiero/pages/historial_financiero_page.dart';
+import '../../usuarios/data/usuario_repository.dart';
+import '../../usuarios/models/usuario_model.dart';
 import '../data/prestamo_repository.dart';
 import '../models/prestamo_model.dart';
 
@@ -25,11 +29,13 @@ class _PrestamosPageState extends State<PrestamosPage> {
   final _prestamoRepository = const PrestamoRepository();
   final _clienteRepository = const ClienteRepository();
   final _configuracionRepository = const ConfiguracionRepository();
+  final _usuarioRepository = const UsuarioRepository();
   final _permissionService = const PermissionService();
   final _buscarController = TextEditingController();
 
   List<PrestamoModel> _prestamos = [];
   List<ClienteModel> _clientes = [];
+  List<UsuarioModel> _cobradores = [];
   _FiltroPrestamos _filtro = _FiltroPrestamos.todos;
   bool _cargando = true;
   bool _detalleInicialMostrado = false;
@@ -55,11 +61,15 @@ class _PrestamosPageState extends State<PrestamosPage> {
           ? await _prestamoRepository.listar()
           : await _prestamoRepository.listarPorCobrador(cobradorId);
       final clientes = await _clienteRepository.listar(cobradorId: cobradorId);
+      final cobradores = _permissionService.esCobrador
+          ? <UsuarioModel>[]
+          : await _usuarioRepository.listarCobradoresActivos();
 
       if (!mounted) return;
       setState(() {
         _prestamos = prestamos;
         _clientes = clientes;
+        _cobradores = cobradores;
         _cargando = false;
       });
       _mostrarDetalleInicial();
@@ -124,13 +134,6 @@ class _PrestamosPageState extends State<PrestamosPage> {
         .where((cliente) => cliente.estaActivo && cliente.id != null)
         .toList();
 
-    if (clientesActivos.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Primero crea un cliente activo.')),
-      );
-      return;
-    }
-
     final interesesPermitidos = await _obtenerInteresesPermitidos();
     final montoMaximoCobrador = await _obtenerMontoMaximoCobrador();
     final cuotasDefecto = await _obtenerCuotasDefecto();
@@ -142,6 +145,7 @@ class _PrestamosPageState extends State<PrestamosPage> {
       useSafeArea: true,
       builder: (context) => _PrestamoFormSheet(
         clientes: clientesActivos,
+        cobradores: _cobradores,
         esCobrador: _permissionService.esCobrador,
         interesesPermitidos: interesesPermitidos,
         montoMaximoCobrador: montoMaximoCobrador,
@@ -152,8 +156,17 @@ class _PrestamosPageState extends State<PrestamosPage> {
     if (data == null) return;
 
     try {
+      var clienteId = data.clienteId;
+      final clienteNuevo = data.clienteNuevo;
+      if (clienteNuevo != null) {
+        clienteId = await _clienteRepository.crear(clienteNuevo);
+      }
+      if (clienteId == null) {
+        throw StateError('Selecciona o crea un cliente para el prestamo.');
+      }
+
       await _prestamoRepository.crearCalculado(
-        clienteId: data.clienteId,
+        clienteId: clienteId,
         monto: data.monto,
         interes: data.interes,
         cuotas: data.cuotas,
@@ -792,6 +805,7 @@ class _DetalleItem extends StatelessWidget {
 class _PrestamoFormSheet extends StatefulWidget {
   const _PrestamoFormSheet({
     required this.clientes,
+    required this.cobradores,
     required this.esCobrador,
     required this.interesesPermitidos,
     required this.montoMaximoCobrador,
@@ -799,6 +813,7 @@ class _PrestamoFormSheet extends StatefulWidget {
   });
 
   final List<ClienteModel> clientes;
+  final List<UsuarioModel> cobradores;
   final bool esCobrador;
   final List<double> interesesPermitidos;
   final double montoMaximoCobrador;
@@ -810,10 +825,20 @@ class _PrestamoFormSheet extends StatefulWidget {
 
 class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
   final _formKey = GlobalKey<FormState>();
+  final _nombreController = TextEditingController();
+  final _cedulaController = TextEditingController();
+  final _telefonoController = TextEditingController();
+  final _direccionController = TextEditingController();
+  final _barrioController = TextEditingController();
+  final _referenciaController = TextEditingController();
   final _montoController = TextEditingController();
   late final TextEditingController _cuotasController;
 
   int? _clienteId;
+  int? _cobradorId;
+  bool _crearCliente = false;
+  bool _capturandoUbicacion = false;
+  LocationCapture? _ubicacion;
   late double _interesSeleccionado;
 
   double get _monto => CurrencyFormatter.parse(_montoController.text);
@@ -825,6 +850,7 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
   @override
   void initState() {
     super.initState();
+    _crearCliente = widget.clientes.isEmpty;
     _interesSeleccionado = widget.interesesPermitidos.first;
     _cuotasController = TextEditingController(
       text: widget.cuotasDefecto.toString(),
@@ -833,23 +859,85 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
 
   @override
   void dispose() {
+    _nombreController.dispose();
+    _cedulaController.dispose();
+    _telefonoController.dispose();
+    _direccionController.dispose();
+    _barrioController.dispose();
+    _referenciaController.dispose();
     _montoController.dispose();
     _cuotasController.dispose();
     super.dispose();
   }
 
-  void _guardar() {
+  Future<void> _capturarUbicacion() async {
+    setState(() => _capturandoUbicacion = true);
+    try {
+      final ubicacion = await captureCurrentLocation();
+      if (!mounted) return;
+      setState(() => _ubicacion = ubicacion);
+      if (ubicacion == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('La ubicacion no esta disponible en este dispositivo.'),
+          ),
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo capturar la ubicacion: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _capturandoUbicacion = false);
+    }
+  }
+
+  Future<void> _guardar() async {
     if (!_formKey.currentState!.validate()) return;
+
+    var ubicacion = _ubicacion;
+    if (_crearCliente && ubicacion == null) {
+      try {
+        ubicacion = await captureCurrentLocation();
+        if (!mounted) return;
+        setState(() => _ubicacion = ubicacion);
+      } catch (_) {
+        // La ubicacion ayuda al seguimiento, pero no bloquea el prestamo.
+      }
+    }
+
+    final usuarioActual = SessionManager.instance.usuarioActual;
+    final clienteNuevo = _crearCliente
+        ? ClienteModel(
+            nombre: _nombreController.text.trim(),
+            cedula: _emptyToNull(_cedulaController.text),
+            telefono: _emptyToNull(_telefonoController.text),
+            direccion: _emptyToNull(_direccionController.text),
+            barrio: _emptyToNull(_barrioController.text),
+            referencia: _emptyToNull(_referenciaController.text),
+            cobradorId: widget.esCobrador ? usuarioActual?.id : _cobradorId,
+            latitud: ubicacion?.latitude,
+            longitud: ubicacion?.longitude,
+            fechaRegistro: DateTime.now(),
+          )
+        : null;
 
     Navigator.pop(
       context,
       _PrestamoFormData(
-        clienteId: _clienteId!,
+        clienteId: _crearCliente ? null : _clienteId,
+        clienteNuevo: clienteNuevo,
         monto: _monto,
         interes: _interes,
         cuotas: _cuotas,
       ),
     );
+  }
+
+  String? _emptyToNull(String value) {
+    final clean = value.trim();
+    return clean.isEmpty ? null : clean;
   }
 
   @override
@@ -872,26 +960,69 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
               const SizedBox(height: 4),
               const Text('Selecciona el cliente y confirma el cálculo.'),
               const SizedBox(height: 18),
-              DropdownButtonFormField<int>(
-                initialValue: _clienteId,
-                items: [
-                  for (final cliente in widget.clientes)
-                    DropdownMenuItem<int>(
-                      value: cliente.id!,
-                      child: Text(cliente.nombre),
-                    ),
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment<bool>(
+                    value: false,
+                    icon: Icon(Icons.person_search),
+                    label: Text('Existente'),
+                  ),
+                  ButtonSegment<bool>(
+                    value: true,
+                    icon: Icon(Icons.person_add),
+                    label: Text('Nuevo'),
+                  ),
                 ],
-                onChanged: (value) => setState(() => _clienteId = value),
-                decoration: const InputDecoration(
-                  labelText: 'Cliente',
-                  prefixIcon: Icon(Icons.person),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null) return 'Selecciona un cliente';
-                  return null;
+                selected: {_crearCliente},
+                onSelectionChanged: (values) {
+                  setState(() {
+                    _crearCliente = values.first;
+                    if (_crearCliente) _clienteId = null;
+                  });
                 },
               ),
+              const SizedBox(height: 12),
+              if (!_crearCliente)
+                DropdownButtonFormField<int>(
+                  initialValue: _clienteId,
+                  items: [
+                    for (final cliente in widget.clientes)
+                      DropdownMenuItem<int>(
+                        value: cliente.id!,
+                        child: Text(cliente.nombre),
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => _clienteId = value),
+                  decoration: const InputDecoration(
+                    labelText: 'Cliente',
+                    prefixIcon: Icon(Icons.person),
+                    border: OutlineInputBorder(),
+                  ),
+                  validator: (value) {
+                    if (!_crearCliente && value == null) {
+                      return 'Selecciona un cliente';
+                    }
+                    return null;
+                  },
+                )
+              else
+                _ClienteRapidoFields(
+                  nombreController: _nombreController,
+                  cedulaController: _cedulaController,
+                  telefonoController: _telefonoController,
+                  direccionController: _direccionController,
+                  barrioController: _barrioController,
+                  referenciaController: _referenciaController,
+                  cobradores: widget.cobradores,
+                  cobradorId: _cobradorId,
+                  ubicacion: _ubicacion,
+                  capturandoUbicacion: _capturandoUbicacion,
+                  esCobrador: widget.esCobrador,
+                  onCobradorChanged: (value) {
+                    setState(() => _cobradorId = value);
+                  },
+                  onCapturarUbicacion: _capturarUbicacion,
+                ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _montoController,
@@ -979,6 +1110,169 @@ class _PrestamoFormSheetState extends State<_PrestamoFormSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ClienteRapidoFields extends StatelessWidget {
+  const _ClienteRapidoFields({
+    required this.nombreController,
+    required this.cedulaController,
+    required this.telefonoController,
+    required this.direccionController,
+    required this.barrioController,
+    required this.referenciaController,
+    required this.cobradores,
+    required this.cobradorId,
+    required this.ubicacion,
+    required this.capturandoUbicacion,
+    required this.esCobrador,
+    required this.onCobradorChanged,
+    required this.onCapturarUbicacion,
+  });
+
+  final TextEditingController nombreController;
+  final TextEditingController cedulaController;
+  final TextEditingController telefonoController;
+  final TextEditingController direccionController;
+  final TextEditingController barrioController;
+  final TextEditingController referenciaController;
+  final List<UsuarioModel> cobradores;
+  final int? cobradorId;
+  final LocationCapture? ubicacion;
+  final bool capturandoUbicacion;
+  final bool esCobrador;
+  final ValueChanged<int?> onCobradorChanged;
+  final VoidCallback onCapturarUbicacion;
+
+  @override
+  Widget build(BuildContext context) {
+    final ubicacionTexto = ubicacion == null
+        ? 'Sin ubicacion capturada'
+        : '${ubicacion!.latitude.toStringAsFixed(6)}, '
+            '${ubicacion!.longitude.toStringAsFixed(6)}';
+
+    return Column(
+      children: [
+        TextFormField(
+          controller: nombreController,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'Nombre completo',
+            prefixIcon: Icon(Icons.person),
+            border: OutlineInputBorder(),
+          ),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'El nombre es obligatorio';
+            }
+            return null;
+          },
+        ),
+        const SizedBox(height: 12),
+        if (!esCobrador) ...[
+          DropdownButtonFormField<int>(
+            initialValue: cobradorId,
+            items: [
+              for (final cobrador in cobradores)
+                if (cobrador.id != null)
+                  DropdownMenuItem<int>(
+                    value: cobrador.id!,
+                    child: Text(cobrador.nombre),
+                  ),
+            ],
+            onChanged: onCobradorChanged,
+            decoration: const InputDecoration(
+              labelText: 'Cobrador asignado',
+              prefixIcon: Icon(Icons.assignment_ind),
+              border: OutlineInputBorder(),
+            ),
+            validator: (value) {
+              if (value == null) return 'Selecciona el cobrador';
+              return null;
+            },
+          ),
+          const SizedBox(height: 12),
+        ],
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: cedulaController,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Cedula',
+                  prefixIcon: Icon(Icons.badge),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: TextFormField(
+                controller: telefonoController,
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Telefono',
+                  prefixIcon: Icon(Icons.phone),
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: direccionController,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'Direccion',
+            prefixIcon: Icon(Icons.home),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: barrioController,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'Barrio',
+            prefixIcon: Icon(Icons.map),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: referenciaController,
+          minLines: 2,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Referencia',
+            hintText: 'Ej: casa azul, frente a la tienda',
+            prefixIcon: Icon(Icons.notes),
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.my_location),
+          title: const Text('Ubicacion del prestamo'),
+          subtitle: Text(ubicacionTexto),
+          trailing: IconButton(
+            tooltip: 'Capturar ubicacion',
+            onPressed: capturandoUbicacion ? null : onCapturarUbicacion,
+            icon: capturandoUbicacion
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.gps_fixed),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1071,12 +1365,14 @@ class _EmptyPrestamos extends StatelessWidget {
 class _PrestamoFormData {
   const _PrestamoFormData({
     required this.clienteId,
+    required this.clienteNuevo,
     required this.monto,
     required this.interes,
     required this.cuotas,
   });
 
-  final int clienteId;
+  final int? clienteId;
+  final ClienteModel? clienteNuevo;
   final double monto;
   final double interes;
   final int cuotas;
