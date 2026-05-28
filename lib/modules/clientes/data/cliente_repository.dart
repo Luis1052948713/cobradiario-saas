@@ -24,12 +24,14 @@ class ClienteRepository {
     if (_usaSupabase) {
       try {
         final id = await _crearOnline(cliente);
+
         await auditoriaRepository.registrar(
           accion: 'crear',
           modulo: 'clientes',
           referenciaId: id,
           descripcion: 'Cliente creado: ${cliente.nombre}',
         );
+
         return id;
       } catch (_) {
         return _crearLocalYEncolar(cliente);
@@ -40,109 +42,126 @@ class ClienteRepository {
   }
 
   Future<List<ClienteModel>> listar({int? cobradorId}) async {
-    if (_usaSupabase) {
-      try {
-        dynamic query = SupabaseService.requireClient.from('clientes').select();
+    final clientesLocales = await _listarLocal(cobradorId: cobradorId);
 
-        final cobradorUuid = OnlineIdMapper.instance.uuidFor(
-          cobradorId,
-          tabla: DatabaseTables.usuarios,
-        );
-
-        if (cobradorUuid != null) {
-          query = query.eq('cobrador_id', cobradorUuid);
-        }
-
-        final rows = await query.order('nombre');
-
-        final clientes = <ClienteModel>[];
-
-        for (final row in rows) {
-          clientes.add(await _fromOnline(row as Map<String, dynamic>));
-        }
-
-        await _cacheClientes(clientes);
-
-        return clientes;
-      } catch (_) {
-        return _listarLocal(cobradorId: cobradorId);
-      }
+    if (!_usaSupabase) {
+      return clientesLocales;
     }
 
-    return _listarLocal(cobradorId: cobradorId);
+    try {
+      dynamic query = SupabaseService.requireClient.from('clientes').select();
+
+      final cobradorUuid = OnlineIdMapper.instance.uuidFor(
+        cobradorId,
+        tabla: DatabaseTables.usuarios,
+      );
+
+      if (cobradorUuid != null) {
+        query = query.eq('cobrador_id', cobradorUuid);
+      }
+
+      final rows = await query
+          .order('nombre')
+          .timeout(const Duration(seconds: 8));
+
+      final clientesOnline = <ClienteModel>[];
+
+      for (final row in rows) {
+        clientesOnline.add(await _fromOnline(row as Map<String, dynamic>));
+      }
+
+      await _cacheClientes(clientesOnline);
+
+      return _unirClientesSinDuplicar(
+        locales: clientesLocales,
+        online: clientesOnline,
+      );
+    } catch (_) {
+      return clientesLocales;
+    }
   }
 
   Future<List<ClienteModel>> buscar(String query, {int? cobradorId}) async {
-    if (_usaSupabase) {
-      try {
-        final texto = query.trim();
+    final clientesLocales = await _buscarLocal(query, cobradorId: cobradorId);
 
-        dynamic request = SupabaseService.requireClient
-            .from('clientes')
-            .select()
-            .or(
-              'nombre.ilike.%$texto%,cedula.ilike.%$texto%,telefono.ilike.%$texto%,barrio.ilike.%$texto%',
-            );
-
-        final cobradorUuid = OnlineIdMapper.instance.uuidFor(
-          cobradorId,
-          tabla: DatabaseTables.usuarios,
-        );
-
-        if (cobradorUuid != null) {
-          request = request.eq('cobrador_id', cobradorUuid);
-        }
-
-        final rows = await request.order('nombre');
-
-        final clientes = <ClienteModel>[];
-
-        for (final row in rows) {
-          clientes.add(await _fromOnline(row as Map<String, dynamic>));
-        }
-
-        await _cacheClientes(clientes);
-
-        return clientes;
-      } catch (_) {
-        return _buscarLocal(query, cobradorId: cobradorId);
-      }
+    if (!_usaSupabase) {
+      return clientesLocales;
     }
 
-    return _buscarLocal(query, cobradorId: cobradorId);
+    try {
+      final texto = query.trim();
+
+      dynamic request = SupabaseService.requireClient
+          .from('clientes')
+          .select()
+          .or(
+            'nombre.ilike.%$texto%,cedula.ilike.%$texto%,telefono.ilike.%$texto%,barrio.ilike.%$texto%',
+          );
+
+      final cobradorUuid = OnlineIdMapper.instance.uuidFor(
+        cobradorId,
+        tabla: DatabaseTables.usuarios,
+      );
+
+      if (cobradorUuid != null) {
+        request = request.eq('cobrador_id', cobradorUuid);
+      }
+
+      final rows = await request
+          .order('nombre')
+          .timeout(const Duration(seconds: 8));
+
+      final clientesOnline = <ClienteModel>[];
+
+      for (final row in rows) {
+        clientesOnline.add(await _fromOnline(row as Map<String, dynamic>));
+      }
+
+      await _cacheClientes(clientesOnline);
+
+      return _unirClientesSinDuplicar(
+        locales: clientesLocales,
+        online: clientesOnline,
+      );
+    } catch (_) {
+      return clientesLocales;
+    }
   }
 
   Future<ClienteModel?> buscarPorId(int id) async {
-    if (_usaSupabase) {
-      try {
-        final uuid = OnlineIdMapper.instance.uuidFor(
-          id,
-          tabla: DatabaseTables.clientes,
-        );
+    final clienteLocal = await _buscarPorIdLocal(id);
 
-        if (uuid == null) {
-          return _buscarPorIdLocal(id);
-        }
-
-        final row = await SupabaseService.requireClient
-            .from('clientes')
-            .select()
-            .eq('id', uuid)
-            .maybeSingle();
-
-        if (row == null) return _buscarPorIdLocal(id);
-
-        final cliente = await _fromOnline(row);
-
-        await _cacheClientes([cliente]);
-
-        return cliente;
-      } catch (_) {
-        return _buscarPorIdLocal(id);
-      }
+    if (!_usaSupabase) {
+      return clienteLocal;
     }
 
-    return _buscarPorIdLocal(id);
+    try {
+      final uuid = OnlineIdMapper.instance.uuidFor(
+        id,
+        tabla: DatabaseTables.clientes,
+      );
+
+      if (uuid == null) {
+        return clienteLocal;
+      }
+
+      final row = await SupabaseService.requireClient
+          .from('clientes')
+          .select()
+          .eq('id', uuid)
+          .maybeSingle()
+          .timeout(const Duration(seconds: 8));
+
+      if (row == null) return clienteLocal;
+
+      final clienteOnline = await _fromOnline(row);
+
+      await _cacheClientes([clienteOnline]);
+
+      return clienteOnline;
+    } catch (_) {
+      return clienteLocal;
+    }
   }
 
   Future<int> actualizar(ClienteModel cliente) async {
@@ -178,7 +197,8 @@ class ClienteRepository {
               'estado': cliente.estado,
               'updated_at': DateTime.now().toIso8601String(),
             })
-            .eq('id', uuid);
+            .eq('id', uuid)
+            .timeout(const Duration(seconds: 8));
 
         await _guardarClienteLocal(cliente);
 
@@ -227,7 +247,8 @@ class ClienteRepository {
               'cobrador_id': cobradorUuid,
               'updated_at': DateTime.now().toIso8601String(),
             })
-            .eq('id', clienteUuid);
+            .eq('id', clienteUuid)
+            .timeout(const Duration(seconds: 8));
 
         final db = await _db;
 
@@ -278,7 +299,8 @@ class ClienteRepository {
               'estado': AppEstados.inactivo,
               'updated_at': DateTime.now().toIso8601String(),
             })
-            .eq('id', uuid);
+            .eq('id', uuid)
+            .timeout(const Duration(seconds: 8));
 
         final db = await _db;
 
@@ -331,7 +353,8 @@ class ClienteRepository {
           'created_at': cliente.fechaRegistro.toIso8601String(),
         })
         .select()
-        .single();
+        .single()
+        .timeout(const Duration(seconds: 8));
 
     final uuid = row['id'] as String;
 
@@ -659,6 +682,37 @@ class ClienteRepository {
       'estado': cliente.estado,
       'fecha_registro': cliente.fechaRegistro.toIso8601String(),
     };
+  }
+
+  List<ClienteModel> _unirClientesSinDuplicar({
+    required List<ClienteModel> locales,
+    required List<ClienteModel> online,
+  }) {
+    final Map<int, ClienteModel> resultado = {};
+
+    for (final cliente in online) {
+      final id = cliente.id;
+
+      if (id != null) {
+        resultado[id] = cliente;
+      }
+    }
+
+    for (final cliente in locales) {
+      final id = cliente.id;
+
+      if (id != null) {
+        resultado[id] = cliente;
+      }
+    }
+
+    final lista = resultado.values.toList();
+
+    lista.sort(
+      (a, b) => a.nombre.toLowerCase().compareTo(b.nombre.toLowerCase()),
+    );
+
+    return lista;
   }
 
   bool get _usaSupabase {
