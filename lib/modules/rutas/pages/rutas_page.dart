@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/permissions/permission_service.dart';
 import '../../../core/utils/currency_formatter.dart';
+import '../../caja/data/control_financiero_repository.dart';
+import '../../caja/pages/caja_page.dart';
+import '../../caja/pages/gastos_page.dart';
+import '../../clientes/pages/clientes_page.dart';
 import '../../clientes/models/cliente_model.dart';
 import '../../cobros/data/cobro_repository.dart';
 import '../../cobros/models/cobro_model.dart';
@@ -187,13 +191,29 @@ class RutaDetallePage extends StatefulWidget {
 class _RutaDetallePageState extends State<RutaDetallePage> {
   final _repository = const RutaRepository();
   final _cobroRepository = const CobroRepository();
+  final _controlFinancieroRepository = const ControlFinancieroRepository();
   final _permissionService = const PermissionService();
+  final _buscarController = TextEditingController();
 
   List<RutaClienteDetalle> _clientes = [];
   RutaReporteModel? _reporte;
+  CajaResumenDiario? _cajaResumen;
+  DateTime _fechaRuta = DateTime.now();
   bool _cargando = true;
 
   bool get _esAdmin => _permissionService.puedeVerAuditoriaGlobal();
+
+  List<RutaClienteDetalle> get _clientesFiltrados {
+    final query = _buscarController.text.trim().toLowerCase();
+    if (query.isEmpty) return _clientes;
+    return _clientes.where((detalle) {
+      final cliente = detalle.cliente;
+      return cliente.nombre.toLowerCase().contains(query) ||
+          (cliente.telefono?.toLowerCase().contains(query) ?? false) ||
+          (cliente.cedula?.toLowerCase().contains(query) ?? false) ||
+          (cliente.barrio?.toLowerCase().contains(query) ?? false);
+    }).toList();
+  }
 
   @override
   void initState() {
@@ -201,15 +221,25 @@ class _RutaDetallePageState extends State<RutaDetallePage> {
     _cargar();
   }
 
+  @override
+  void dispose() {
+    _buscarController.dispose();
+    super.dispose();
+  }
+
   Future<void> _cargar() async {
     setState(() => _cargando = true);
     try {
       final clientes = await _repository.listarClientesRuta(widget.ruta.id!);
       final reporte = await _repository.reporteRuta(widget.ruta.id!);
+      final cajaResumen = await _controlFinancieroRepository.resumenDiario(
+        widget.ruta.cobradorId,
+      );
       if (!mounted) return;
       setState(() {
         _clientes = clientes;
         _reporte = reporte;
+        _cajaResumen = cajaResumen;
         _cargando = false;
       });
     } catch (error) {
@@ -240,6 +270,41 @@ class _RutaDetallePageState extends State<RutaDetallePage> {
     } catch (error) {
       _mostrarError(error);
     }
+  }
+
+  Future<void> _abrirClienteNuevo() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ClientesPage()),
+    );
+    await _cargar();
+  }
+
+  Future<void> _abrirGastos() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const GastosPage()),
+    );
+    await _cargar();
+  }
+
+  Future<void> _abrirCaja() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const CajaPage()),
+    );
+    await _cargar();
+  }
+
+  Future<void> _seleccionarFechaRuta() async {
+    final fecha = await showDatePicker(
+      context: context,
+      initialDate: _fechaRuta,
+      firstDate: DateTime.now().subtract(const Duration(days: 30)),
+      lastDate: DateTime.now().add(const Duration(days: 30)),
+    );
+    if (fecha == null) return;
+    setState(() => _fechaRuta = fecha);
   }
 
   Future<void> _registrarVisita(RutaClienteDetalle detalle) async {
@@ -310,9 +375,13 @@ class _RutaDetallePageState extends State<RutaDetallePage> {
   @override
   Widget build(BuildContext context) {
     final reporte = _reporte;
-    final porCobrar = _clientes.where((item) => item.porCobrar).toList();
-    final pagaron = _clientes.where((item) => item.tienePagoHoy).toList();
-    final noPagaron = _clientes.where((item) => item.noPagoHoy).toList();
+    final clientes = _clientesFiltrados;
+    final porCobrar = clientes.where((item) => item.porCobrar).toList();
+    final pagaron = clientes.where((item) => item.tienePagoHoy).toList();
+    final noPagaron = clientes.where((item) => item.noPagoHoy).toList();
+    final sinPrestamo = clientes
+        .where((item) => item.prestamoActivo == null && !item.tieneGestionHoy)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -349,27 +418,48 @@ class _RutaDetallePageState extends State<RutaDetallePage> {
                     ruta: widget.ruta,
                     cobrador: widget.cobrador,
                   ),
-                  if (reporte != null) ...[
-                    const SizedBox(height: 12),
-                    _RutaReporte(reporte: reporte),
-                  ],
+                  const SizedBox(height: 12),
+                  _RutaCalendarioCard(
+                    fecha: _fechaRuta,
+                    onSeleccionarFecha: _seleccionarFechaRuta,
+                  ),
+                  const SizedBox(height: 12),
+                  _RutaAccionesRapidas(
+                    esAdmin: _esAdmin,
+                    onAgregarClienteRuta: _agregarCliente,
+                    onClienteNuevo: _abrirClienteNuevo,
+                    onGastos: _abrirGastos,
+                    onCaja: _abrirCaja,
+                  ),
+                  const SizedBox(height: 12),
+                  _RutaBusqueda(
+                    controller: _buscarController,
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: 12),
+                  _ResumenDiaRuta(
+                    fecha: _fechaRuta,
+                    clientes: _clientes,
+                    reporte: reporte,
+                    cajaResumen: _cajaResumen,
+                  ),
                   const SizedBox(height: 18),
                   _RutaGestionHeader(
                     porCobrar: porCobrar.length,
                     pagaron: pagaron.length,
-                    noPagaron: noPagaron.length,
+                    noPagaron: noPagaron.length + sinPrestamo.length,
                   ),
                   const SizedBox(height: 8),
-                  if (_clientes.isEmpty)
+                  if (clientes.isEmpty)
                     const _EstadoVacio(
-                      titulo: 'Sin prestamos por cobrar',
+                      titulo: 'Sin clientes',
                       mensaje:
-                          'La ruta no tiene prestamos activos o atrasados para gestionar hoy.',
+                          'No hay clientes asignados que coincidan con la busqueda.',
                     )
                   else ...[
                     _RutaClientesSection(
                       titulo: 'Por cobrar',
-                      subtitulo: 'Prestamos activos pendientes de visita',
+                      subtitulo: 'Clientes con saldo pendiente',
                       icono: Icons.payments,
                       color: Colors.orange,
                       clientes: porCobrar,
@@ -388,7 +478,7 @@ class _RutaDetallePageState extends State<RutaDetallePage> {
                     ),
                     _RutaClientesSection(
                       titulo: 'Pagaron',
-                      subtitulo: 'Clientes que ya pagaron cuota hoy',
+                      subtitulo: 'Pagos registrados hoy',
                       icono: Icons.check_circle,
                       color: Colors.green,
                       clientes: pagaron,
@@ -405,12 +495,12 @@ class _RutaDetallePageState extends State<RutaDetallePage> {
                       ),
                     ),
                     _RutaClientesSection(
-                      titulo: 'No pagaron',
-                      subtitulo: 'Visitas sin pago, promesas o no encontrados',
+                      titulo: 'Seguimiento',
+                      subtitulo: 'No pago, ausentes o siguiente dia',
                       icono: Icons.report_problem,
                       color: Colors.red,
-                      clientes: noPagaron,
-                      emptyMessage: 'No hay visitas sin pago registradas.',
+                      clientes: [...noPagaron, ...sinPrestamo],
+                      emptyMessage: 'No hay seguimientos pendientes.',
                       itemBuilder: (detalle) => _RutaClienteCard(
                         detalle: detalle,
                         index: _clientes.indexOf(detalle),
@@ -524,68 +614,271 @@ class _RutaDetalleHeader extends StatelessWidget {
   }
 }
 
-class _RutaReporte extends StatelessWidget {
-  const _RutaReporte({required this.reporte});
+class _RutaCalendarioCard extends StatelessWidget {
+  const _RutaCalendarioCard({
+    required this.fecha,
+    required this.onSeleccionarFecha,
+  });
 
-  final RutaReporteModel reporte;
+  final DateTime fecha;
+  final VoidCallback onSeleccionarFecha;
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisCount: MediaQuery.sizeOf(context).width > 720 ? 5 : 2,
-      crossAxisSpacing: 10,
-      mainAxisSpacing: 10,
-      childAspectRatio: 1.45,
-      children: [
-        _MiniMetric('Clientes', '${reporte.totalClientes}', Colors.blue),
-        _MiniMetric('Visitados', '${reporte.clientesVisitados}', Colors.green),
-        _MiniMetric(
-          'Pendientes',
-          '${reporte.clientesPendientes}',
-          Colors.amber,
+    return Card(
+      child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.calendar_month)),
+        title: const Text('Fecha de ruta'),
+        subtitle: Text(_date(fecha)),
+        trailing: IconButton(
+          tooltip: 'Cambiar fecha',
+          onPressed: onSeleccionarFecha,
+          icon: const Icon(Icons.edit_calendar),
         ),
-        _MiniMetric('Cobros', '${reporte.cobrosRealizados}', Colors.teal),
-        _MiniMetric(
-          'Recaudado',
-          CurrencyFormatter.pesos(reporte.totalRecaudado),
-          Colors.indigo,
+      ),
+    );
+  }
+}
+
+class _RutaAccionesRapidas extends StatelessWidget {
+  const _RutaAccionesRapidas({
+    required this.esAdmin,
+    required this.onAgregarClienteRuta,
+    required this.onClienteNuevo,
+    required this.onGastos,
+    required this.onCaja,
+  });
+
+  final bool esAdmin;
+  final VoidCallback onAgregarClienteRuta;
+  final VoidCallback onClienteNuevo;
+  final VoidCallback onGastos;
+  final VoidCallback onCaja;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (esAdmin)
+          FilledButton.icon(
+            onPressed: onAgregarClienteRuta,
+            icon: const Icon(Icons.playlist_add),
+            label: const Text('Asignar'),
+          ),
+        OutlinedButton.icon(
+          onPressed: onClienteNuevo,
+          icon: const Icon(Icons.person_add),
+          label: const Text('Cliente'),
+        ),
+        OutlinedButton.icon(
+          onPressed: onGastos,
+          icon: const Icon(Icons.receipt_long),
+          label: const Text('Gastos'),
+        ),
+        OutlinedButton.icon(
+          onPressed: onCaja,
+          icon: const Icon(Icons.account_balance_wallet),
+          label: const Text('Ingresos'),
         ),
       ],
     );
   }
 }
 
-class _MiniMetric extends StatelessWidget {
-  const _MiniMetric(this.label, this.value, this.color);
+class _RutaBusqueda extends StatelessWidget {
+  const _RutaBusqueda({required this.controller, required this.onChanged});
 
-  final String label;
-  final String value;
-  final Color color;
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        labelText: 'Buscar cliente',
+        prefixIcon: const Icon(Icons.search),
+        suffixIcon: controller.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Limpiar',
+                onPressed: () {
+                  controller.clear();
+                  onChanged('');
+                },
+                icon: const Icon(Icons.close),
+              ),
+        border: const OutlineInputBorder(),
+      ),
+    );
+  }
+}
+
+class _ResumenDiaRuta extends StatelessWidget {
+  const _ResumenDiaRuta({
+    required this.fecha,
+    required this.clientes,
+    required this.reporte,
+    required this.cajaResumen,
+  });
+
+  final DateTime fecha;
+  final List<RutaClienteDetalle> clientes;
+  final RutaReporteModel? reporte;
+  final CajaResumenDiario? cajaResumen;
+
+  @override
+  Widget build(BuildContext context) {
+    final ausentes = clientes
+        .where(
+          (item) =>
+              item.ultimoEstadoVisita == RutaVisitaEstados.noEncontrado ||
+              item.ultimoEstadoVisita == RutaVisitaEstados.negocioCerrado,
+        )
+        .length;
+    final aplazados = clientes
+        .where((item) => item.ultimoEstadoVisita == RutaVisitaEstados.prometePagar)
+        .length;
+    final recaudoEsperado = clientes.fold<double>(
+      0,
+      (total, item) =>
+          total +
+          ((item.prestamoActivo?.cuotaDiaria ?? 0).clamp(
+            0,
+            item.saldoPendiente,
+          )).toDouble(),
+    );
+    final clientesNuevos = clientes
+        .where((item) => _sameDay(item.cliente.fechaRegistro, fecha))
+        .length;
+    final recaudoDia =
+        reporte?.totalRecaudado ?? cajaResumen?.totalRecaudado ?? 0;
+    final pagosRegistrados =
+        reporte?.cobrosRealizados ?? cajaResumen?.cantidadCobros ?? 0;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(Icons.circle, size: 12, color: color),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Icon(Icons.summarize),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Resumen del dia',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+              ],
             ),
-            Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 10),
+            _ResumenGrid(
+              items: [
+                _ResumenDato('Fecha ruta', _date(fecha)),
+                _ResumenDato('Clientes', '${clientes.length}'),
+                _ResumenDato('Clientes nuevos', '$clientesNuevos'),
+                _ResumenDato('Ausentes', '$ausentes'),
+                _ResumenDato('Siguiente dia', '$aplazados'),
+                _ResumenDato('Pagos', '$pagosRegistrados'),
+                _ResumenDato(
+                  'Caja inicial',
+                  CurrencyFormatter.pesos(cajaResumen?.saldoInicial ?? 0),
+                ),
+                _ResumenDato(
+                  'Recaudo esperado',
+                  CurrencyFormatter.pesos(recaudoEsperado),
+                ),
+                _ResumenDato(
+                  'Recaudo dia',
+                  CurrencyFormatter.pesos(recaudoDia),
+                ),
+                _ResumenDato('Efectivo', CurrencyFormatter.pesos(recaudoDia)),
+                _ResumenDato('Transferencia', CurrencyFormatter.pesos(0)),
+                _ResumenDato(
+                  'Total ventas',
+                  CurrencyFormatter.pesos(cajaResumen?.totalPrestado ?? 0),
+                ),
+                _ResumenDato('Retiros caja', CurrencyFormatter.pesos(0)),
+                _ResumenDato(
+                  'Egresos',
+                  CurrencyFormatter.pesos(cajaResumen?.gastos ?? 0),
+                ),
+                _ResumenDato('Ingresos', CurrencyFormatter.pesos(recaudoDia)),
+                _ResumenDato(
+                  'Saldo en caja',
+                  CurrencyFormatter.pesos(cajaResumen?.saldoDisponible ?? 0),
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
+}
+
+class _ResumenGrid extends StatelessWidget {
+  const _ResumenGrid({required this.items});
+
+  final List<_ResumenDato> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: items.length,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+        childAspectRatio: 2.15,
+      ),
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                Text(
+                  item.value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ResumenDato {
+  const _ResumenDato(this.label, this.value);
+
+  final String label;
+  final String value;
 }
 
 class _RutaGestionHeader extends StatelessWidget {
@@ -815,117 +1108,127 @@ class _RutaClienteCard extends StatelessWidget {
         ? Icons.check_circle
         : Icons.edit_note;
 
+    final prestamo = detalle.prestamoActivo;
+    final cuota = prestamo == null
+        ? 'Sin prestamo'
+        : '${prestamo.cuotaLabel}: ${CurrencyFormatter.pesos(prestamo.cuotaDiaria)}';
+
     return Card(
-      child: IntrinsicHeight(
-        child: Row(
-          children: [
-            Container(width: 5, color: color),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          backgroundColor: color.withValues(alpha: 0.12),
-                          child: Text('${detalle.orden}'),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                detalle.cliente.nombre,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
+      child: InkWell(
+        onTap: onVisita,
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              Container(width: 5, color: color),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: color.withValues(alpha: 0.12),
+                            child: Text('${detalle.orden}'),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  detalle.cliente.nombre,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                detalle.cliente.direccion?.isNotEmpty == true
-                                    ? detalle.cliente.direccion!
-                                    : 'Sin direccion',
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _InfoChip(
-                          Icons.phone,
-                          detalle.cliente.telefono ?? 'Sin telefono',
-                        ),
-                        _InfoChip(
-                          Icons.account_balance_wallet,
-                          CurrencyFormatter.pesos(detalle.saldoPendiente),
-                        ),
-                        _InfoChip(
-                          Icons.today,
-                          CurrencyFormatter.pesos(
-                            detalle.prestamoActivo?.cuotaDiaria ?? 0,
-                          ),
-                        ),
-                        _InfoChip(
-                          Icons.receipt_long,
-                          detalle.prestamoActivo?.estado ?? 'Sin prestamo',
-                        ),
-                        _InfoChip(
-                          Icons.flag,
-                          _estadoLabel(detalle.ultimoEstadoVisita),
-                        ),
-                      ],
-                    ),
-                    if (detalle.ultimaObservacion?.isNotEmpty == true) ...[
-                      const SizedBox(height: 8),
-                      Text('Obs: ${detalle.ultimaObservacion}'),
-                    ],
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            onPressed:
-                                detalle.tienePagoHoy &&
-                                    detalle.saldoPendiente <= 0
-                                ? null
-                                : onVisita,
-                            icon: Icon(accionIcon),
-                            label: Text(accionLabel),
-                          ),
-                        ),
-                        if (puedeAdministrar) ...[
-                          IconButton(
-                            tooltip: 'Subir',
-                            onPressed: index == 0 ? null : onSubir,
-                            icon: const Icon(Icons.arrow_upward),
-                          ),
-                          IconButton(
-                            tooltip: 'Bajar',
-                            onPressed: index == total - 1 ? null : onBajar,
-                            icon: const Icon(Icons.arrow_downward),
-                          ),
-                          IconButton(
-                            tooltip: 'Quitar',
-                            onPressed: onQuitar,
-                            icon: const Icon(Icons.remove_circle_outline),
+                                Text(
+                                  '$cuota - Saldo: ${CurrencyFormatter.pesos(detalle.saldoPendiente)}',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
                           ),
                         ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _InfoChip(
+                            Icons.phone,
+                            detalle.cliente.telefono ?? 'Sin telefono',
+                          ),
+                          _InfoChip(
+                            Icons.account_balance_wallet,
+                            CurrencyFormatter.pesos(detalle.saldoPendiente),
+                          ),
+                          _InfoChip(
+                            Icons.today,
+                            prestamo == null
+                                ? 'Sin cuota'
+                                : CurrencyFormatter.pesos(
+                                    prestamo.cuotaDiaria,
+                                  ),
+                          ),
+                          _InfoChip(
+                            Icons.receipt_long,
+                            detalle.prestamoActivo?.estado ?? 'Sin prestamo',
+                          ),
+                          _InfoChip(
+                            Icons.flag,
+                            _estadoLabel(detalle.ultimoEstadoVisita),
+                          ),
+                        ],
+                      ),
+                      if (detalle.ultimaObservacion?.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        Text('Obs: ${detalle.ultimaObservacion}'),
                       ],
-                    ),
-                  ],
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  detalle.tienePagoHoy &&
+                                      detalle.saldoPendiente <= 0
+                                  ? null
+                                  : onVisita,
+                              icon: Icon(accionIcon),
+                              label: Text(accionLabel),
+                            ),
+                          ),
+                          if (puedeAdministrar) ...[
+                            IconButton(
+                              tooltip: 'Subir',
+                              onPressed: index == 0 ? null : onSubir,
+                              icon: const Icon(Icons.arrow_upward),
+                            ),
+                            IconButton(
+                              tooltip: 'Bajar',
+                              onPressed: index == total - 1 ? null : onBajar,
+                              icon: const Icon(Icons.arrow_downward),
+                            ),
+                            IconButton(
+                              tooltip: 'Quitar',
+                              onPressed: onQuitar,
+                              icon: const Icon(Icons.remove_circle_outline),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1061,30 +1364,82 @@ class _RutaFormData {
   final int cobradorId;
 }
 
-class _AgregarClienteDialog extends StatelessWidget {
+class _AgregarClienteDialog extends StatefulWidget {
   const _AgregarClienteDialog({required this.clientes});
 
   final List<ClienteModel> clientes;
 
   @override
+  State<_AgregarClienteDialog> createState() => _AgregarClienteDialogState();
+}
+
+class _AgregarClienteDialogState extends State<_AgregarClienteDialog> {
+  final _buscarController = TextEditingController();
+
+  @override
+  void dispose() {
+    _buscarController.dispose();
+    super.dispose();
+  }
+
+  List<ClienteModel> get _clientesFiltrados {
+    final query = _buscarController.text.trim().toLowerCase();
+    if (query.isEmpty) return widget.clientes;
+    return widget.clientes.where((cliente) {
+      return cliente.nombre.toLowerCase().contains(query) ||
+          (cliente.telefono?.toLowerCase().contains(query) ?? false) ||
+          (cliente.cedula?.toLowerCase().contains(query) ?? false) ||
+          (cliente.barrio?.toLowerCase().contains(query) ?? false);
+    }).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final clientes = _clientesFiltrados;
     return AlertDialog(
       title: const Text('Agregar cliente'),
       content: SizedBox(
         width: double.maxFinite,
-        child: clientes.isEmpty
+        child: widget.clientes.isEmpty
             ? const Text('No hay clientes disponibles para esta ruta.')
-            : ListView.builder(
-                shrinkWrap: true,
-                itemCount: clientes.length,
-                itemBuilder: (context, index) {
-                  final cliente = clientes[index];
-                  return ListTile(
-                    title: Text(cliente.nombre),
-                    subtitle: Text(cliente.direccion ?? 'Sin direccion'),
-                    onTap: () => Navigator.pop(context, cliente),
-                  );
-                },
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: _buscarController,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Buscar cliente',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 360,
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: clientes.length,
+                      itemBuilder: (context, index) {
+                        final cliente = clientes[index];
+                        return ListTile(
+                          leading: const CircleAvatar(child: Icon(Icons.person)),
+                          title: Text(cliente.nombre),
+                          subtitle: Text(
+                            [
+                              cliente.telefono,
+                              cliente.barrio,
+                              cliente.direccion,
+                            ].whereType<String>().join(' - '),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () => Navigator.pop(context, cliente),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
       ),
       actions: [
@@ -1109,8 +1464,13 @@ class _VisitaDialog extends StatefulWidget {
 
 class _VisitaDialogState extends State<_VisitaDialog> {
   final _formKey = GlobalKey<FormState>();
+  final _productoController = TextEditingController(text: 'Prestamo');
+  final _totalVentaController = TextEditingController();
   final _montoController = TextEditingController();
+  final _numeroCuotasController = TextEditingController();
   final _observacionController = TextEditingController();
+  String _formaPago = 'efectivo';
+  _GestionRutaTipo _tipoGestion = _GestionRutaTipo.cuota;
   String _estado = RutaVisitaEstados.pendiente;
 
   @override
@@ -1119,34 +1479,148 @@ class _VisitaDialogState extends State<_VisitaDialog> {
     final prestamo = widget.detalle.prestamoActivo;
     if (widget.detalle.ultimoEstadoVisita != null) {
       _estado = widget.detalle.ultimoEstadoVisita!;
+      _tipoGestion = switch (_estado) {
+        RutaVisitaEstados.pago => _GestionRutaTipo.cuota,
+        RutaVisitaEstados.prometePagar => _GestionRutaTipo.siguienteDia,
+        _ => _GestionRutaTipo.noPago,
+      };
     } else if (prestamo != null) {
       _estado = RutaVisitaEstados.pago;
+    } else {
+      _estado = RutaVisitaEstados.noQuisoPagar;
+      _tipoGestion = _GestionRutaTipo.noPago;
     }
     if (prestamo != null && _estado == RutaVisitaEstados.pago) {
       _montoController.text = CurrencyFormatter.numero(
         prestamo.cuotaDiaria.clamp(0, prestamo.saldo),
       );
+      _totalVentaController.text = CurrencyFormatter.numero(prestamo.totalPagar);
+      _numeroCuotasController.text = prestamo.cuotas.toString();
     }
   }
 
   @override
   void dispose() {
+    _productoController.dispose();
+    _totalVentaController.dispose();
     _montoController.dispose();
+    _numeroCuotasController.dispose();
     _observacionController.dispose();
     super.dispose();
+  }
+
+  int get _cuotasPagadas {
+    final prestamo = widget.detalle.prestamoActivo;
+    if (prestamo == null || prestamo.cuotaDiaria <= 0) return 0;
+    return ((prestamo.totalPagar - prestamo.saldo) / prestamo.cuotaDiaria)
+        .floor()
+        .clamp(0, prestamo.cuotas)
+        .toInt();
+  }
+
+  int get _cuotasPendientes {
+    final prestamo = widget.detalle.prestamoActivo;
+    if (prestamo == null) return 0;
+    return (prestamo.cuotas - _cuotasPagadas)
+        .clamp(0, prestamo.cuotas)
+        .toInt();
+  }
+
+  double get _valorPagar => CurrencyFormatter.parse(_montoController.text);
+
+  double get _nuevoSaldo {
+    return (widget.detalle.saldoPendiente - _valorPagar)
+        .clamp(0, double.infinity)
+        .toDouble();
+  }
+
+  void _cambiarTipoGestion(_GestionRutaTipo tipo) {
+    final prestamo = widget.detalle.prestamoActivo;
+    if (prestamo == null &&
+        (tipo == _GestionRutaTipo.cuota || tipo == _GestionRutaTipo.abono)) {
+      tipo = _GestionRutaTipo.noPago;
+    }
+    setState(() {
+      _tipoGestion = tipo;
+      switch (tipo) {
+        case _GestionRutaTipo.cuota:
+          _estado = RutaVisitaEstados.pago;
+          _montoController.text = CurrencyFormatter.numero(
+            (prestamo?.cuotaDiaria ?? 0).clamp(0, widget.detalle.saldoPendiente),
+          );
+          break;
+        case _GestionRutaTipo.abono:
+          _estado = RutaVisitaEstados.pago;
+          if (CurrencyFormatter.parse(_montoController.text) <= 0) {
+            _montoController.text = CurrencyFormatter.numero(
+              (prestamo?.cuotaDiaria ?? 0).clamp(
+                0,
+                widget.detalle.saldoPendiente,
+              ),
+            );
+          }
+          break;
+        case _GestionRutaTipo.noPago:
+          _estado = RutaVisitaEstados.noQuisoPagar;
+          _montoController.text = '0';
+          break;
+        case _GestionRutaTipo.siguienteDia:
+          _estado = RutaVisitaEstados.prometePagar;
+          _montoController.text = '0';
+          break;
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final prestamo = widget.detalle.prestamoActivo;
     return AlertDialog(
-      title: Text(prestamo == null ? 'Resultado de visita' : 'Registrar cobro'),
+      title: Text(widget.detalle.cliente.nombre),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _ClienteGestionHeader(
+                detalle: widget.detalle,
+                cuotasPagadas: _cuotasPagadas,
+                cuotasPendientes: _cuotasPendientes,
+              ),
+              const SizedBox(height: 10),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SegmentedButton<_GestionRutaTipo>(
+                  selected: {_tipoGestion},
+                  onSelectionChanged: (values) =>
+                      _cambiarTipoGestion(values.first),
+                  segments: const [
+                    ButtonSegment(
+                      value: _GestionRutaTipo.cuota,
+                      icon: Icon(Icons.today),
+                      label: Text('Cuota'),
+                    ),
+                    ButtonSegment(
+                      value: _GestionRutaTipo.abono,
+                      icon: Icon(Icons.payments),
+                      label: Text('Abono'),
+                    ),
+                    ButtonSegment(
+                      value: _GestionRutaTipo.noPago,
+                      icon: Icon(Icons.money_off),
+                      label: Text('No pago'),
+                    ),
+                    ButtonSegment(
+                      value: _GestionRutaTipo.siguienteDia,
+                      icon: Icon(Icons.event_repeat),
+                      label: Text('Siguiente dia'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
               if (prestamo != null) ...[
                 _CobroRutaResumen(
                   prestamo: prestamo,
@@ -1154,36 +1628,36 @@ class _VisitaDialogState extends State<_VisitaDialog> {
                 ),
                 const SizedBox(height: 10),
               ],
-              DropdownButtonFormField<String>(
-                initialValue: _estado,
-                decoration: const InputDecoration(labelText: 'Estado'),
-                items: [
-                  for (final estado in RutaVisitaEstados.todos)
-                    DropdownMenuItem(
-                      value: estado,
-                      child: Text(_estadoLabel(estado)),
-                    ),
-                ],
-                onChanged: (value) {
-                  setState(() {
-                    _estado = value ?? RutaVisitaEstados.pendiente;
-                    if (_estado == RutaVisitaEstados.pago &&
-                        prestamo != null &&
-                        _montoController.text.trim().isEmpty) {
-                      _montoController.text = CurrencyFormatter.numero(
-                        prestamo.cuotaDiaria.clamp(0, prestamo.saldo),
-                      );
-                    }
-                  });
-                },
+              TextFormField(
+                controller: _productoController,
+                decoration: const InputDecoration(
+                  labelText: 'Producto',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextFormField(
+                controller: _totalVentaController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Total venta',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              _ResumenLinea(
+                label: 'Saldo actual',
+                value: CurrencyFormatter.pesos(widget.detalle.saldoPendiente),
               ),
               if (_estado == RutaVisitaEstados.pago) ...[
                 const SizedBox(height: 8),
                 TextFormField(
                   controller: _montoController,
                   keyboardType: TextInputType.number,
+                  onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
-                    labelText: 'Monto cobrado',
+                    labelText: 'Valor a pagar',
+                    border: const OutlineInputBorder(),
                     helperText:
                         'Sugerido: ${CurrencyFormatter.pesos(prestamo?.cuotaDiaria ?? 0)}',
                   ),
@@ -1197,42 +1671,45 @@ class _VisitaDialogState extends State<_VisitaDialog> {
                   },
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          _montoController.text = CurrencyFormatter.numero(
-                            (prestamo?.cuotaDiaria ?? 0).clamp(
-                              0,
-                              widget.detalle.saldoPendiente,
-                            ),
-                          );
-                        },
-                        icon: const Icon(Icons.today),
-                        label: const Text('Cuota'),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          _montoController.text = CurrencyFormatter.numero(
-                            widget.detalle.saldoPendiente,
-                          );
-                        },
-                        icon: const Icon(Icons.done_all),
-                        label: const Text('Saldo'),
-                      ),
-                    ),
-                  ],
+                TextFormField(
+                  controller: _numeroCuotasController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Numero de cuotas',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
               ],
+              const SizedBox(height: 8),
+              _ResumenLinea(
+                label: 'Nuevo saldo',
+                value: CurrencyFormatter.pesos(_nuevoSaldo),
+              ),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<String>(
+                initialValue: _formaPago,
+                decoration: const InputDecoration(
+                  labelText: 'Forma de pago',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'efectivo', child: Text('Efectivo')),
+                  DropdownMenuItem(
+                    value: 'transferencia',
+                    child: Text('Transferencia'),
+                  ),
+                ],
+                onChanged: (value) =>
+                    setState(() => _formaPago = value ?? _formaPago),
+              ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _observacionController,
                 maxLines: 2,
-                decoration: const InputDecoration(labelText: 'Observacion'),
+                decoration: const InputDecoration(
+                  labelText: 'Observacion',
+                  border: OutlineInputBorder(),
+                ),
               ),
             ],
           ),
@@ -1253,15 +1730,89 @@ class _VisitaDialogState extends State<_VisitaDialog> {
                 monto: _estado == RutaVisitaEstados.pago
                     ? CurrencyFormatter.parse(_montoController.text)
                     : 0,
-                observacion: _observacionController.text.trim().isEmpty
-                    ? null
-                    : _observacionController.text.trim(),
+                observacion: _observacionFinal(),
               ),
             );
           },
           child: const Text('Guardar'),
         ),
       ],
+    );
+  }
+
+  String? _observacionFinal() {
+    final partes = [
+      'Gestion: ${_tipoGestion.label}',
+      'Producto: ${_productoController.text.trim()}',
+      'Forma de pago: $_formaPago',
+      if (_totalVentaController.text.trim().isNotEmpty)
+        'Total venta: ${_totalVentaController.text.trim()}',
+      if (_numeroCuotasController.text.trim().isNotEmpty)
+        'Cuotas: ${_numeroCuotasController.text.trim()}',
+      if (_observacionController.text.trim().isNotEmpty)
+        _observacionController.text.trim(),
+    ];
+    return partes.join(' | ');
+  }
+}
+
+enum _GestionRutaTipo { cuota, abono, noPago, siguienteDia }
+
+extension _GestionRutaTipoLabel on _GestionRutaTipo {
+  String get label {
+    return switch (this) {
+      _GestionRutaTipo.cuota => 'Cuota',
+      _GestionRutaTipo.abono => 'Abono',
+      _GestionRutaTipo.noPago => 'No pago',
+      _GestionRutaTipo.siguienteDia => 'Siguiente dia',
+    };
+  }
+}
+
+class _ClienteGestionHeader extends StatelessWidget {
+  const _ClienteGestionHeader({
+    required this.detalle,
+    required this.cuotasPagadas,
+    required this.cuotasPendientes,
+  });
+
+  final RutaClienteDetalle detalle;
+  final int cuotasPagadas;
+  final int cuotasPendientes;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              detalle.cliente.nombre,
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _InfoChip(Icons.done_all, 'Pagadas: $cuotasPagadas'),
+                _InfoChip(Icons.pending_actions, 'Pendientes: $cuotasPendientes'),
+                _InfoChip(
+                  Icons.phone,
+                  detalle.cliente.telefono ?? 'Sin celular',
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1389,4 +1940,10 @@ String _date(DateTime value) {
   return '${value.day.toString().padLeft(2, '0')}/'
       '${value.month.toString().padLeft(2, '0')}/'
       '${value.year}';
+}
+
+bool _sameDay(DateTime left, DateTime right) {
+  return left.year == right.year &&
+      left.month == right.month &&
+      left.day == right.day;
 }

@@ -165,6 +165,7 @@ class RutaRepository {
         COALESCE(p.fecha_inicio, pv.fecha_inicio) AS prestamo_fecha_inicio,
         COALESCE(p.fecha_fin, pv.fecha_fin) AS prestamo_fecha_fin,
         COALESCE(p.estado, pv.estado) AS prestamo_estado,
+        COALESCE(p.frecuencia_pago, pv.frecuencia_pago) AS prestamo_frecuencia_pago,
         rv.estado_visita AS ultimo_estado_visita,
         rv.observacion AS ultima_observacion,
         rv.fecha_hora AS ultima_visita
@@ -192,7 +193,6 @@ class RutaRepository {
       LEFT JOIN ${DatabaseTables.prestamos} pv ON pv.id = rv.prestamo_id
       WHERE rc.ruta_id = ?
         AND rc.estado = ?
-        AND (p.id IS NOT NULL OR rv.id IS NOT NULL)
       ORDER BY
         CASE
           WHEN rv.estado_visita IS NULL THEN 0
@@ -636,6 +636,7 @@ class RutaRepository {
         'fecha_inicio': row['prestamo_fecha_inicio'],
         'fecha_fin': row['prestamo_fecha_fin'],
         'estado': row['prestamo_estado'],
+        'frecuencia_pago': row['prestamo_frecuencia_pago'],
       });
     }
 
@@ -762,8 +763,6 @@ class RutaRepository {
           ? null
           : _prestamoFromOnline(prestamos.first);
       final visita = visitas.isEmpty ? null : visitas.first;
-      if (prestamo == null && visita == null) continue;
-
       detalles.add(
         RutaClienteDetalle(
           rutaClienteId: OnlineIdMapper.instance.localIdFor(
