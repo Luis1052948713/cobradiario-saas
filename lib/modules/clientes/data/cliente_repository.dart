@@ -21,6 +21,10 @@ class ClienteRepository {
   Future<Database> get _db => DatabaseHelper.instance.database;
 
   Future<int> crear(ClienteModel cliente) async {
+    if (kIsWeb) {
+      return _crearOnlineWeb(cliente);
+    }
+
     if (_usaSupabase) {
       try {
         final id = await _crearOnline(cliente);
@@ -42,6 +46,39 @@ class ClienteRepository {
   }
 
   Future<List<ClienteModel>> listar({int? cobradorId}) async {
+    if (kIsWeb) {
+      if (!_usaSupabase) {
+        return [];
+      }
+
+      try {
+        dynamic query = SupabaseService.requireClient.from('clientes').select();
+
+        final cobradorUuid = OnlineIdMapper.instance.uuidFor(
+          cobradorId,
+          tabla: DatabaseTables.usuarios,
+        );
+
+        if (cobradorUuid != null) {
+          query = query.eq('cobrador_id', cobradorUuid);
+        }
+
+        final rows = await query
+            .order('nombre')
+            .timeout(const Duration(seconds: 8));
+
+        final clientesOnline = <ClienteModel>[];
+
+        for (final row in rows) {
+          clientesOnline.add(await _fromOnline(row as Map<String, dynamic>));
+        }
+
+        return clientesOnline;
+      } catch (error) {
+        throw Exception('No se pudieron cargar los clientes: $error');
+      }
+    }
+
     final clientesLocales = await _listarLocal(cobradorId: cobradorId);
 
     if (!_usaSupabase) {
@@ -82,6 +119,46 @@ class ClienteRepository {
   }
 
   Future<List<ClienteModel>> buscar(String query, {int? cobradorId}) async {
+    if (kIsWeb) {
+      if (!_usaSupabase) {
+        return [];
+      }
+
+      try {
+        final texto = query.trim();
+
+        dynamic request = SupabaseService.requireClient
+            .from('clientes')
+            .select()
+            .or(
+              'nombre.ilike.%$texto%,cedula.ilike.%$texto%,telefono.ilike.%$texto%,barrio.ilike.%$texto%',
+            );
+
+        final cobradorUuid = OnlineIdMapper.instance.uuidFor(
+          cobradorId,
+          tabla: DatabaseTables.usuarios,
+        );
+
+        if (cobradorUuid != null) {
+          request = request.eq('cobrador_id', cobradorUuid);
+        }
+
+        final rows = await request
+            .order('nombre')
+            .timeout(const Duration(seconds: 8));
+
+        final clientesOnline = <ClienteModel>[];
+
+        for (final row in rows) {
+          clientesOnline.add(await _fromOnline(row as Map<String, dynamic>));
+        }
+
+        return clientesOnline;
+      } catch (error) {
+        throw Exception('No se pudieron buscar clientes: $error');
+      }
+    }
+
     final clientesLocales = await _buscarLocal(query, cobradorId: cobradorId);
 
     if (!_usaSupabase) {
@@ -129,6 +206,36 @@ class ClienteRepository {
   }
 
   Future<ClienteModel?> buscarPorId(int id) async {
+    if (kIsWeb) {
+      if (!_usaSupabase) {
+        return null;
+      }
+
+      try {
+        final uuid = OnlineIdMapper.instance.uuidFor(
+          id,
+          tabla: DatabaseTables.clientes,
+        );
+
+        if (uuid == null) {
+          return null;
+        }
+
+        final row = await SupabaseService.requireClient
+            .from('clientes')
+            .select()
+            .eq('id', uuid)
+            .maybeSingle()
+            .timeout(const Duration(seconds: 8));
+
+        if (row == null) return null;
+
+        return _fromOnline(row);
+      } catch (_) {
+        return null;
+      }
+    }
+
     final clienteLocal = await _buscarPorIdLocal(id);
 
     if (!_usaSupabase) {
@@ -165,6 +272,10 @@ class ClienteRepository {
   }
 
   Future<int> actualizar(ClienteModel cliente) async {
+    if (kIsWeb) {
+      return _actualizarOnlineWeb(cliente);
+    }
+
     if (_usaSupabase) {
       try {
         final uuid = OnlineIdMapper.instance.uuidFor(
@@ -222,6 +333,13 @@ class ClienteRepository {
     required int clienteId,
     required int cobradorId,
   }) async {
+    if (kIsWeb) {
+      return _asignarCobradorOnlineWeb(
+        clienteId: clienteId,
+        cobradorId: cobradorId,
+      );
+    }
+
     if (_usaSupabase) {
       try {
         final clienteUuid = OnlineIdMapper.instance.uuidFor(
@@ -282,6 +400,10 @@ class ClienteRepository {
   }
 
   Future<int> desactivar(int id) async {
+    if (kIsWeb) {
+      return _desactivarOnlineWeb(id);
+    }
+
     if (_usaSupabase) {
       try {
         final uuid = OnlineIdMapper.instance.uuidFor(
@@ -325,6 +447,178 @@ class ClienteRepository {
     }
 
     return _desactivarLocalYEncolar(id);
+  }
+
+  Future<int> _crearOnlineWeb(ClienteModel cliente) async {
+    if (!_usaSupabase) {
+      throw Exception('Supabase no está disponible en Flutter Web.');
+    }
+
+    final perfil = SessionManager.instance.perfilActual!;
+
+    final cobradorUuid = OnlineIdMapper.instance.uuidFor(
+      cliente.cobradorId,
+      tabla: DatabaseTables.usuarios,
+    );
+
+    final row = await SupabaseService.requireClient
+        .from('clientes')
+        .insert({
+          'empresa_id': perfil.companyId,
+          'nombre': cliente.nombre,
+          'cedula': cliente.cedula,
+          'telefono': cliente.telefono,
+          'direccion': cliente.direccion,
+          'barrio': cliente.barrio,
+          'referencia': cliente.referencia,
+          'foto_url': cliente.foto,
+          'cobrador_id': cobradorUuid,
+          'latitud': cliente.latitud,
+          'longitud': cliente.longitud,
+          'estado': cliente.estado,
+          'created_at': cliente.fechaRegistro.toIso8601String(),
+        })
+        .select()
+        .single()
+        .timeout(const Duration(seconds: 8));
+
+    final uuid = row['id'] as String;
+
+    final localId = OnlineIdMapper.instance.localIdFor(
+      uuid,
+      tabla: DatabaseTables.clientes,
+    );
+
+    await auditoriaRepository.registrar(
+      accion: 'crear',
+      modulo: 'clientes',
+      referenciaId: localId,
+      descripcion: 'Cliente creado: ${cliente.nombre}',
+    );
+
+    return localId;
+  }
+
+  Future<int> _actualizarOnlineWeb(ClienteModel cliente) async {
+    if (!_usaSupabase) {
+      throw Exception('Supabase no está disponible en Flutter Web.');
+    }
+
+    final uuid = OnlineIdMapper.instance.uuidFor(
+      cliente.id,
+      tabla: DatabaseTables.clientes,
+    );
+
+    if (uuid == null) {
+      throw Exception('No se encontró el cliente online para actualizar.');
+    }
+
+    final cobradorUuid = OnlineIdMapper.instance.uuidFor(
+      cliente.cobradorId,
+      tabla: DatabaseTables.usuarios,
+    );
+
+    await SupabaseService.requireClient
+        .from('clientes')
+        .update({
+          'nombre': cliente.nombre,
+          'cedula': cliente.cedula,
+          'telefono': cliente.telefono,
+          'direccion': cliente.direccion,
+          'barrio': cliente.barrio,
+          'referencia': cliente.referencia,
+          'foto_url': cliente.foto,
+          'cobrador_id': cobradorUuid,
+          'latitud': cliente.latitud,
+          'longitud': cliente.longitud,
+          'estado': cliente.estado,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', uuid)
+        .timeout(const Duration(seconds: 8));
+
+    await auditoriaRepository.registrar(
+      accion: 'actualizar',
+      modulo: 'clientes',
+      referenciaId: cliente.id,
+      descripcion: 'Cliente actualizado: ${cliente.nombre}',
+    );
+
+    return 1;
+  }
+
+  Future<int> _asignarCobradorOnlineWeb({
+    required int clienteId,
+    required int cobradorId,
+  }) async {
+    if (!_usaSupabase) {
+      throw Exception('Supabase no está disponible en Flutter Web.');
+    }
+
+    final clienteUuid = OnlineIdMapper.instance.uuidFor(
+      clienteId,
+      tabla: DatabaseTables.clientes,
+    );
+
+    final cobradorUuid = OnlineIdMapper.instance.uuidFor(
+      cobradorId,
+      tabla: DatabaseTables.usuarios,
+    );
+
+    if (clienteUuid == null || cobradorUuid == null) {
+      throw Exception('Cliente o cobrador online no encontrado.');
+    }
+
+    await SupabaseService.requireClient
+        .from('clientes')
+        .update({
+          'cobrador_id': cobradorUuid,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', clienteUuid)
+        .timeout(const Duration(seconds: 8));
+
+    await auditoriaRepository.registrar(
+      accion: 'asignar_cobrador',
+      modulo: 'clientes',
+      referenciaId: clienteId,
+      descripcion: 'Cliente asignado al cobrador ID $cobradorId',
+    );
+
+    return 1;
+  }
+
+  Future<int> _desactivarOnlineWeb(int id) async {
+    if (!_usaSupabase) {
+      throw Exception('Supabase no está disponible en Flutter Web.');
+    }
+
+    final uuid = OnlineIdMapper.instance.uuidFor(
+      id,
+      tabla: DatabaseTables.clientes,
+    );
+
+    if (uuid == null) {
+      throw Exception('No se encontró el cliente online para desactivar.');
+    }
+
+    await SupabaseService.requireClient
+        .from('clientes')
+        .update({
+          'estado': AppEstados.inactivo,
+          'updated_at': DateTime.now().toIso8601String(),
+        })
+        .eq('id', uuid)
+        .timeout(const Duration(seconds: 8));
+
+    await auditoriaRepository.registrar(
+      accion: 'desactivar',
+      modulo: 'clientes',
+      referenciaId: id,
+      descripcion: 'Cliente desactivado',
+    );
+
+    return 1;
   }
 
   Future<int> _crearOnline(ClienteModel cliente) async {
@@ -506,6 +800,8 @@ class ClienteRepository {
   }
 
   Future<List<ClienteModel>> _listarLocal({int? cobradorId}) async {
+    if (kIsWeb) return [];
+
     final db = await _db;
 
     final rows = await db.query(
@@ -522,6 +818,8 @@ class ClienteRepository {
     String query, {
     int? cobradorId,
   }) async {
+    if (kIsWeb) return [];
+
     final db = await _db;
 
     final likeQuery = '%${query.trim()}%';
@@ -548,6 +846,8 @@ class ClienteRepository {
   }
 
   Future<ClienteModel?> _buscarPorIdLocal(int id) async {
+    if (kIsWeb) return null;
+
     final db = await _db;
 
     final rows = await db.query(
@@ -595,11 +895,19 @@ class ClienteRepository {
       tabla: DatabaseTables.clientes,
     );
 
-    await OnlineIdMapper.instance.rememberPersisted(
-      tabla: DatabaseTables.clientes,
-      uuid: uuid,
-      localId: id,
-    );
+    if (!kIsWeb) {
+      await OnlineIdMapper.instance.rememberPersisted(
+        tabla: DatabaseTables.clientes,
+        uuid: uuid,
+        localId: id,
+      );
+    } else {
+      OnlineIdMapper.instance.remember(
+        uuid: uuid,
+        localId: id,
+        tabla: DatabaseTables.clientes,
+      );
+    }
 
     int? cobradorId;
 
@@ -609,11 +917,19 @@ class ClienteRepository {
         tabla: DatabaseTables.usuarios,
       );
 
-      await OnlineIdMapper.instance.rememberPersisted(
-        tabla: DatabaseTables.usuarios,
-        uuid: cobradorUuid,
-        localId: cobradorId,
-      );
+      if (!kIsWeb) {
+        await OnlineIdMapper.instance.rememberPersisted(
+          tabla: DatabaseTables.usuarios,
+          uuid: cobradorUuid,
+          localId: cobradorId,
+        );
+      } else {
+        OnlineIdMapper.instance.remember(
+          uuid: cobradorUuid,
+          localId: cobradorId,
+          tabla: DatabaseTables.usuarios,
+        );
+      }
     }
 
     return ClienteModel(
