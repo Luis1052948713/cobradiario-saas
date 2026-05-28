@@ -208,7 +208,7 @@ class CobroRepository {
     unawaited(
       OfflineSyncService.instance
           .sincronizarPendientes()
-          .catchError((Object _, StackTrace __) {}),
+          .catchError((Object error, StackTrace stackTrace) {}),
     );
   }
 

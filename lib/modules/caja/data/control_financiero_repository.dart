@@ -752,13 +752,14 @@ class ControlFinancieroRepository {
     required double valor,
     String? descripcion,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _registrarGastoOnline(
         cobradorId: cobradorId,
         tipo: tipo,
         valor: valor,
         descripcion: descripcion,
       );
+    }
 
     if (valor <= 0) throw StateError('El gasto debe ser mayor a cero.');
     await validarCobradorPuedeOperar(cobradorId);
@@ -803,12 +804,13 @@ class ControlFinancieroRepository {
     required double monto,
     String? observacion,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _solicitarSaldoOnline(
         cobradorId: cobradorId,
         monto: monto,
         observacion: observacion,
       );
+    }
 
     if (monto <= 0) {
       throw StateError('El monto solicitado debe ser mayor a cero.');
@@ -851,13 +853,14 @@ class ControlFinancieroRepository {
     required double montoAprobado,
     String? observacionAdmin,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _responderSolicitudOnline(
         solicitudId: solicitudId,
         aprobar: aprobar,
         montoAprobado: montoAprobado,
         observacionAdmin: observacionAdmin,
       );
+    }
 
     final db = await _db;
     final admin = SessionManager.instance.usuarioActual;
@@ -944,12 +947,13 @@ class ControlFinancieroRepository {
     required double monto,
     String? observacion,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _asignarSaldoOnline(
         cobradorId: cobradorId,
         monto: monto,
         observacion: observacion,
       );
+    }
 
     final usuario = SessionManager.instance.usuarioActual;
     if (usuario?.esAdministrador != true || usuario?.id == null) {
@@ -1008,12 +1012,13 @@ class ControlFinancieroRepository {
     required double dineroReportado,
     String? observacion,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _cerrarCajaOnline(
         cobradorId: cobradorId,
         dineroReportado: dineroReportado,
         observacion: observacion,
       );
+    }
 
     final db = await _db;
     final caja = await cajaAbiertaDeCobrador(cobradorId);
@@ -1092,12 +1097,13 @@ class ControlFinancieroRepository {
     required double montoEntregado,
     String? observacion,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _registrarEntregaDineroOnline(
         cierreId: cierreId,
         montoEntregado: montoEntregado,
         observacion: observacion,
       );
+    }
 
     final admin = SessionManager.instance.usuarioActual;
     if (admin?.esAdministrador != true || admin?.id == null) {
@@ -1173,12 +1179,13 @@ class ControlFinancieroRepository {
     required String estado,
     String? observacionAdmin,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _revisarCierreOnline(
         cierreId: cierreId,
         estado: estado,
         observacionAdmin: observacionAdmin,
       );
+    }
 
     final admin = SessionManager.instance.usuarioActual;
     if (admin?.esAdministrador != true || admin?.id == null) {

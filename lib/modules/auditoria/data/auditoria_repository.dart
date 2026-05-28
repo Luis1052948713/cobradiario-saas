@@ -23,16 +23,21 @@ class AuditoriaRepository {
     final perfil = SessionManager.instance.perfilActual;
     if (SupabaseService.isInitialized && perfil != null) {
       try {
+        final metadata = <String, Object?>{};
+        if (referenciaId != null) {
+          metadata['local_referencia_id'] = referenciaId;
+        }
+        if (usuarioId != null) {
+          metadata['local_usuario_id'] = usuarioId;
+        }
+
         await SupabaseService.requireClient.from('auditoria').insert({
           'empresa_id': perfil.companyId,
           'usuario_id': perfil.id,
           'accion': accion,
           'modulo': modulo,
           'descripcion': descripcion,
-          'metadata': {
-            if (referenciaId != null) 'local_referencia_id': referenciaId,
-            if (usuarioId != null) 'local_usuario_id': usuarioId,
-          },
+          'metadata': metadata,
         });
         return 0;
       } catch (error) {
