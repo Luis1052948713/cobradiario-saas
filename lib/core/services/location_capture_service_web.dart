@@ -12,8 +12,12 @@ Future<LocationCapture?> captureCurrentLocation() async {
     enableHighAccuracy: true,
   );
   final coords = position.coords;
+  final latitude = coords?.latitude;
+  final longitude = coords?.longitude;
+  if (latitude == null || longitude == null) return null;
+
   return LocationCapture(
-    latitude: coords.latitude.toDouble(),
-    longitude: coords.longitude.toDouble(),
+    latitude: latitude.toDouble(),
+    longitude: longitude.toDouble(),
   );
 }
