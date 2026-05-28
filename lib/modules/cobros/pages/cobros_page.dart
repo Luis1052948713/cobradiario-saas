@@ -60,10 +60,10 @@ class _CobrosPageState extends State<CobrosPage> {
 
     final cobradorId = _permissionService.cobradorScope();
     final cobros = await _cobroRepository.listar(cobradorId: cobradorId);
+    final clientes = await _clienteRepository.listar(cobradorId: cobradorId);
     final prestamos = await _prestamoRepository.listarActivos(
       cobradorId: cobradorId,
     );
-    final clientes = await _clienteRepository.listar(cobradorId: cobradorId);
 
     if (!mounted) return;
     setState(() {

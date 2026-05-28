@@ -439,8 +439,11 @@ class ControlFinancieroRepository {
     );
   }
 
-  Future<void> validarCobradorPuedeOperar(int cobradorId) async {
-    if (_usaSupabase) {
+  Future<void> validarCobradorPuedeOperar(
+    int cobradorId, {
+    bool localOnly = false,
+  }) async {
+    if (_usaSupabase && !localOnly) {
       final cajaAbierta = await cajaAbiertaDeCobrador(cobradorId);
       if (cajaAbierta == null) {
         throw StateError('Debes tener una caja abierta para operar.');
@@ -456,8 +459,16 @@ class ControlFinancieroRepository {
 
     final db = await _db;
     final hoy = _dateKey(DateTime.now());
-    final cajaAbierta = await cajaAbiertaDeCobrador(cobradorId);
+    final cajas = await db.query(
+      DatabaseTables.cajas,
+      where: 'cobrador_id = ? AND estado = ?',
+      whereArgs: [cobradorId, CajaEstados.abierta],
+      orderBy: 'fecha_creacion DESC',
+      limit: 1,
+    );
+    final cajaAbierta = cajas.isEmpty ? null : cajas.first;
     if (cajaAbierta == null) {
+      if (_usaSupabase && localOnly) return;
       throw StateError('Debes tener una caja abierta para operar.');
     }
     if (cajaAbierta['estado'] == CajaEstados.bloqueada) {
@@ -522,13 +533,13 @@ class ControlFinancieroRepository {
     required double saldoInicial,
     String? observacion,
   }) async {
-    if (_usaSupabase)
+    if (_usaSupabase) {
       return _abrirCajaOnline(
         cobradorId: cobradorId,
         saldoInicial: saldoInicial,
         observacion: observacion,
       );
-
+    }
     final admin = SessionManager.instance.usuarioActual;
     if (admin?.esAdministrador != true || admin?.id == null) {
       throw StateError('Solo el administrador puede abrir caja.');
@@ -2685,6 +2696,7 @@ class ControlFinancieroRepository {
     final cobradorId = OnlineIdMapper.instance.localIdFor(
       row['cobrador_id'] as String,
     );
+    final resumen = await _resumenCajaOnline(row);
     return {
       'id': OnlineIdMapper.instance.localIdFor(row['id'] as String),
       'caja_id': OnlineIdMapper.instance.localIdFor(row['id'] as String),
@@ -2692,6 +2704,12 @@ class ControlFinancieroRepository {
       'cobrador_nombre': await _nombreUsuario(cobradorId),
       'fecha': row['fecha'],
       'estado': _cierreEstadoDesdeCaja(row),
+      'total_recaudado': resumen.totalRecaudado,
+      'total_prestado': resumen.totalPrestado,
+      'cantidad_cobros': resumen.cantidadCobros,
+      'cantidad_prestamos': resumen.cantidadPrestamos,
+      'gastos': resumen.gastos,
+      'saldo_restante': row['saldo_actual'],
       'dinero_reportado': row['dinero_reportado'],
       'dinero_entregado': row['dinero_entregado'],
       'diferencia': row['diferencia'],
@@ -2711,6 +2729,82 @@ class ControlFinancieroRepository {
     return row['dinero_reportado'] == null
         ? null
         : CierreCajaEstados.pendienteRevision;
+  }
+
+  Future<CajaResumenDiario> _resumenCajaOnline(Map<String, dynamic> caja) async {
+    final cobradorUuid = caja['cobrador_id'] as String;
+    final cobradorId = OnlineIdMapper.instance.localIdFor(cobradorUuid);
+    final desde =
+        (caja['created_at'] as String?) ?? _startOfToday().toIso8601String();
+    final hasta =
+        (caja['updated_at'] as String?) ?? DateTime.now().toIso8601String();
+
+    final clientes = await SupabaseService.requireClient
+        .from('clientes')
+        .select('id')
+        .eq('cobrador_id', cobradorUuid);
+    final clienteIds = clientes.map<String>((row) => row['id'] as String).toList();
+
+    var totalPrestado = 0.0;
+    var cantidadPrestamos = 0;
+    if (clienteIds.isNotEmpty) {
+      final prestamos = await SupabaseService.requireClient
+          .from('prestamos')
+          .select('monto')
+          .inFilter('cliente_id', clienteIds)
+          .gte('created_at', desde)
+          .lte('created_at', hasta);
+      cantidadPrestamos = prestamos.length;
+      totalPrestado = prestamos.fold<double>(
+        0,
+        (total, row) => total + _toDouble(row['monto']),
+      );
+    }
+
+    final cobros = await SupabaseService.requireClient
+        .from('cobros')
+        .select('monto, prestamo_id')
+        .eq('cobrador_id', cobradorUuid)
+        .eq('estado', 'registrado')
+        .gte('fecha_pago', desde)
+        .lte('fecha_pago', hasta);
+    final totalRecaudado = cobros.fold<double>(
+      0,
+      (total, row) => total + _toDouble(row['monto']),
+    );
+
+    final gastos = await SupabaseService.requireClient
+        .from('gastos')
+        .select('valor')
+        .eq('cobrador_id', cobradorUuid)
+        .gte('fecha_hora', desde)
+        .lte('fecha_hora', hasta);
+    final totalGastos = gastos.fold<double>(
+      0,
+      (total, row) => total + _toDouble(row['valor']),
+    );
+
+    return CajaResumenDiario(
+      cajaId: OnlineIdMapper.instance.localIdFor(caja['id'] as String),
+      cobradorId: cobradorId,
+      nombre: await _nombreUsuario(cobradorId),
+      estadoCaja: caja['estado'] as String? ?? CajaEstados.cerrada,
+      saldoInicial: _toDouble(caja['saldo_inicial']),
+      saldoDisponible: _toDouble(caja['saldo_actual']),
+      totalPrestado: totalPrestado,
+      totalRecaudado: totalRecaudado,
+      gastos: totalGastos,
+      cantidadPrestamos: cantidadPrestamos,
+      cantidadCobros: cobros.length,
+      clientesVisitados: cobros
+          .map((row) => row['prestamo_id'] as String?)
+          .whereType<String>()
+          .toSet()
+          .length,
+      cierreRealizado: true,
+      cierrePendiente:
+          _cierreEstadoDesdeCaja(caja) == CierreCajaEstados.pendienteRevision,
+    );
   }
 
   bool get _usaSupabase {

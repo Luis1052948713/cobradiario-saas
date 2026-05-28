@@ -170,7 +170,9 @@ class _CajaPageState extends State<CajaPage> {
       builder: (context) => _MontoDialog(
         titulo: 'Registrar entrega',
         label: 'Monto entregado',
-        montoInicial: (cierre['dinero_reportado'] as num?)?.toDouble(),
+        montoInicial:
+            (cierre['saldo_restante'] as num?)?.toDouble() ??
+            (cierre['dinero_reportado'] as num?)?.toDouble(),
       ),
     );
     if (data == null) return;
@@ -811,49 +813,85 @@ class _CierreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final diferencia = (cierre['diferencia'] as num).toDouble();
+    final esperado = (cierre['saldo_restante'] as num?)?.toDouble() ?? 0;
+    final reportado = (cierre['dinero_reportado'] as num?)?.toDouble() ?? 0;
+    final entregado = (cierre['dinero_entregado'] as num?)?.toDouble() ?? 0;
+    final descuadre = reportado - esperado;
+    final recaudado = (cierre['total_recaudado'] as num?)?.toDouble() ?? 0;
+    final gastos = (cierre['gastos'] as num?)?.toDouble() ?? 0;
     final estado =
         cierre['estado'] as String? ?? CierreCajaEstados.pendienteRevision;
     final evaluado =
         estado == CierreCajaEstados.aprobado ||
         estado == CierreCajaEstados.rechazado;
     return Card(
-      child: ListTile(
-        leading: Icon(
-          _estadoCierreIcon(estado),
-          color: _estadoCierreColor(estado),
-        ),
-        title: Text('${cierre['cobrador_nombre']} - ${cierre['fecha']}'),
-        subtitle: Text(
-          'Estado: ${_estadoCierreLabel(estado)} - Entregado: '
-          '${CurrencyFormatter.pesos((cierre['dinero_entregado'] as num?)?.toDouble() ?? 0)}',
-        ),
-        trailing: Wrap(
-          spacing: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              CurrencyFormatter.pesos(diferencia),
-              style: const TextStyle(fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                Icon(
+                  _estadoCierreIcon(estado),
+                  color: _estadoCierreColor(estado),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '${cierre['cobrador_nombre']} - ${cierre['fecha']}',
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                Chip(
+                  label: Text(_estadoCierreLabel(estado)),
+                  backgroundColor: _estadoCierreColor(
+                    estado,
+                  ).withValues(alpha: 0.15),
+                ),
+              ],
             ),
-            IconButton(
-              tooltip: 'Entrega',
-              onPressed: evaluado ? null : onEntrega,
-              icon: const Icon(Icons.handshake),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _Metric('Debe cerrar', CurrencyFormatter.pesos(esperado)),
+                _Metric('Reportado', CurrencyFormatter.pesos(reportado)),
+                _Metric('Entregado', CurrencyFormatter.pesos(entregado)),
+                _Metric('Descuadre', CurrencyFormatter.pesos(descuadre)),
+                _Metric('Recaudado', CurrencyFormatter.pesos(recaudado)),
+                _Metric('Gastos', CurrencyFormatter.pesos(gastos)),
+              ],
             ),
-            IconButton(
-              tooltip: 'Aprobar',
-              onPressed: evaluado ? null : onAprobar,
-              icon: const Icon(Icons.check_circle),
-            ),
-            IconButton(
-              tooltip: 'Revision',
-              onPressed: evaluado ? null : onRevision,
-              icon: const Icon(Icons.manage_search),
-            ),
-            IconButton(
-              tooltip: 'Rechazar',
-              onPressed: evaluado ? null : onRechazar,
-              icon: const Icon(Icons.cancel),
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Wrap(
+                spacing: 2,
+                children: [
+                  IconButton(
+                    tooltip: 'Entrega',
+                    onPressed: evaluado ? null : onEntrega,
+                    icon: const Icon(Icons.handshake),
+                  ),
+                  IconButton(
+                    tooltip: 'Aprobar',
+                    onPressed: evaluado ? null : onAprobar,
+                    icon: const Icon(Icons.check_circle),
+                  ),
+                  IconButton(
+                    tooltip: 'Revision',
+                    onPressed: evaluado ? null : onRevision,
+                    icon: const Icon(Icons.manage_search),
+                  ),
+                  IconButton(
+                    tooltip: 'Rechazar',
+                    onPressed: evaluado ? null : onRechazar,
+                    icon: const Icon(Icons.cancel),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

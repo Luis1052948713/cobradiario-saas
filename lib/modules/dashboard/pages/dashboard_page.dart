@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/navigation/app_route_observer.dart';
 import '../../../core/permissions/permission_service.dart';
+import '../../../core/services/offline_sync_service.dart';
 import '../../../core/session/session_manager.dart';
 import '../../../core/utils/currency_formatter.dart';
 import '../../auditoria/data/auditoria_repository.dart';
@@ -56,9 +57,13 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
     _saldoDisponibleFuture = _cargarSaldoDisponible();
     _notificacionesPendientesFuture = _notificacionRepository.pendientesCount();
     _suscripcionFuture = _suscripcionRepository.obtenerResumen();
+    _sincronizarPendientes();
     _refreshTimer = Timer.periodic(
       const Duration(seconds: 30),
-      (_) => _recargarResumen(silent: true),
+      (_) {
+        _sincronizarPendientes();
+        unawaited(_recargarResumen(silent: true));
+      },
     );
   }
 
@@ -105,6 +110,14 @@ class _DashboardPageState extends State<DashboardPage> with RouteAware {
       _suscripcionFuture = _suscripcionRepository.obtenerResumen();
     });
     if (!silent) await _resumenFuture;
+  }
+
+  void _sincronizarPendientes() {
+    unawaited(
+      OfflineSyncService.instance
+          .sincronizarPendientes()
+          .catchError((Object _, StackTrace __) {}),
+    );
   }
 
   Future<void> _abrir(String modulo, Widget page) async {

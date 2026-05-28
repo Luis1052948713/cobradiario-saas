@@ -24,4 +24,5 @@ class DatabaseTables {
   static const String empresas = 'empresas';
   static const String suscripciones = 'suscripciones';
   static const String licenciaEventos = 'licencia_eventos';
+  static const String syncQueue = 'sync_queue';
 }

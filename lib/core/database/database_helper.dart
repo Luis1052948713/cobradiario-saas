@@ -10,7 +10,7 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
   static const String _databaseName = 'cobra_diario.db';
-  static const int _databaseVersion = 10;
+  static const int _databaseVersion = 11;
 
   Database? _database;
 
@@ -66,6 +66,7 @@ class DatabaseHelper {
       await txn.execute(_createEmpresasTable);
       await txn.execute(_createSuscripcionesTable);
       await txn.execute(_createLicenciaEventosTable);
+      await txn.execute(_createSyncQueueTable);
       await _seedInitialData(txn);
       await _seedSubscriptionData(txn);
     });
@@ -106,6 +107,7 @@ class DatabaseHelper {
         await txn.execute(_createEmpresasTable);
         await txn.execute(_createSuscripcionesTable);
         await txn.execute(_createLicenciaEventosTable);
+        await txn.execute(_createSyncQueueTable);
         await _seedInitialData(txn);
         await _seedSubscriptionData(txn);
       });
@@ -231,6 +233,12 @@ class DatabaseHelper {
     if (oldVersion < 10) {
       await db.transaction((txn) async {
         await _seedSuperadminData(txn);
+      });
+    }
+
+    if (oldVersion < 11) {
+      await db.transaction((txn) async {
+        await txn.execute(_createSyncQueueTable);
       });
     }
   }
@@ -848,6 +856,23 @@ class DatabaseHelper {
         ON DELETE SET NULL ON UPDATE CASCADE,
       FOREIGN KEY (usuario_id) REFERENCES ${DatabaseTables.usuarios} (id)
         ON DELETE SET NULL ON UPDATE CASCADE
+    )
+  ''';
+
+  static const String _createSyncQueueTable =
+      '''
+    CREATE TABLE IF NOT EXISTS ${DatabaseTables.syncQueue} (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tabla TEXT NOT NULL,
+      accion TEXT NOT NULL,
+      referencia_id INTEGER,
+      payload TEXT NOT NULL,
+      estado TEXT NOT NULL DEFAULT 'pendiente'
+        CHECK (estado IN ('pendiente', 'sincronizado', 'error')),
+      intentos INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      synced_at TEXT
     )
   ''';
 }

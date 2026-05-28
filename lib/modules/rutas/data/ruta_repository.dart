@@ -143,7 +143,7 @@ class RutaRepository {
   }
 
   Future<List<RutaClienteDetalle>> listarClientesRuta(int rutaId) async {
-    if (_usaSupabase) return [];
+    if (_usaSupabase) return _listarClientesRutaOnline(rutaId);
 
     await _validarAccesoRuta(rutaId);
     final db = await _db;
@@ -507,6 +507,8 @@ class RutaRepository {
   }
 
   Future<RutaReporteModel> reporteRuta(int rutaId) async {
+    if (_usaSupabase) return _reporteRutaOnline(rutaId);
+
     final db = await _db;
     final hoy = _dateKey(DateTime.now());
     final totalRow = await db.rawQuery(
@@ -716,6 +718,115 @@ class RutaRepository {
         SessionManager.instance.perfilActual?.companyId != null;
   }
 
+  Future<List<RutaClienteDetalle>> _listarClientesRutaOnline(int rutaId) async {
+    final rutaUuid = OnlineIdMapper.instance.uuidFor(rutaId);
+    if (rutaUuid == null) return [];
+    await _validarAccesoRuta(rutaId);
+
+    final hoy = _dateKey(DateTime.now());
+    final rows = await SupabaseService.requireClient
+        .from('ruta_clientes')
+        .select()
+        .eq('ruta_id', rutaUuid)
+        .eq('estado', RutaClienteEstados.activo)
+        .order('orden');
+
+    final detalles = <RutaClienteDetalle>[];
+    for (final row in rows) {
+      final clienteUuid = row['cliente_id'] as String;
+      final clienteRow = await SupabaseService.requireClient
+          .from('clientes')
+          .select()
+          .eq('id', clienteUuid)
+          .maybeSingle();
+      if (clienteRow == null) continue;
+
+      final prestamos = await SupabaseService.requireClient
+          .from('prestamos')
+          .select()
+          .eq('cliente_id', clienteUuid)
+          .inFilter('estado', [AppEstados.activo, AppEstados.atrasado])
+          .order('fecha_inicio', ascending: false)
+          .limit(1);
+
+      final visitas = await SupabaseService.requireClient
+          .from('ruta_visitas')
+          .select()
+          .eq('ruta_id', rutaUuid)
+          .eq('cliente_id', clienteUuid)
+          .gte('fecha_hora', hoy)
+          .order('fecha_hora', ascending: false)
+          .limit(1);
+
+      final prestamo = prestamos.isEmpty
+          ? null
+          : _prestamoFromOnline(prestamos.first);
+      final visita = visitas.isEmpty ? null : visitas.first;
+      if (prestamo == null && visita == null) continue;
+
+      detalles.add(
+        RutaClienteDetalle(
+          rutaClienteId: OnlineIdMapper.instance.localIdFor(
+            row['id'] as String,
+          ),
+          rutaId: rutaId,
+          orden: (row['orden'] as num?)?.toInt() ?? 1,
+          cliente: _clienteFromOnline(clienteRow),
+          prestamoActivo: prestamo,
+          ultimoEstadoVisita: visita?['estado_visita'] as String?,
+          ultimaObservacion: visita?['observacion'] as String?,
+          ultimaVisita: visita?['fecha_hora'] == null
+              ? null
+              : DateTime.parse(visita!['fecha_hora'] as String),
+        ),
+      );
+    }
+
+    detalles.sort((a, b) {
+      final aGroup = a.ultimoEstadoVisita == null
+          ? 0
+          : a.ultimoEstadoVisita == RutaVisitaEstados.pago
+          ? 1
+          : 2;
+      final bGroup = b.ultimoEstadoVisita == null
+          ? 0
+          : b.ultimoEstadoVisita == RutaVisitaEstados.pago
+          ? 1
+          : 2;
+      final groupCompare = aGroup.compareTo(bGroup);
+      return groupCompare == 0 ? a.orden.compareTo(b.orden) : groupCompare;
+    });
+    return detalles;
+  }
+
+  Future<RutaReporteModel> _reporteRutaOnline(int rutaId) async {
+    final rutaUuid = OnlineIdMapper.instance.uuidFor(rutaId);
+    final detalles = await _listarClientesRutaOnline(rutaId);
+    final visitados = detalles.where((item) => item.tieneGestionHoy).length;
+    final cobros = detalles.where((item) => item.tienePagoHoy).length;
+    var recaudado = 0.0;
+    if (rutaUuid != null) {
+      final hoy = _dateKey(DateTime.now());
+      final visitas = await SupabaseService.requireClient
+          .from('ruta_visitas')
+          .select('monto_cobrado')
+          .eq('ruta_id', rutaUuid)
+          .gte('fecha_hora', hoy);
+      recaudado = visitas.fold<double>(
+        0,
+        (total, row) =>
+            total + ((row['monto_cobrado'] as num?)?.toDouble() ?? 0),
+      );
+    }
+    return RutaReporteModel(
+      totalClientes: detalles.length,
+      clientesVisitados: visitados,
+      clientesPendientes: detalles.length - visitados,
+      cobrosRealizados: cobros,
+      totalRecaudado: recaudado,
+    );
+  }
+
   RutaModel _rutaFromOnline(Map<String, dynamic> row) {
     return RutaModel(
       id: OnlineIdMapper.instance.localIdFor(row['id'] as String),
@@ -751,6 +862,24 @@ class RutaRepository {
       fechaRegistro: row['created_at'] == null
           ? DateTime.now()
           : DateTime.parse(row['created_at'] as String),
+    );
+  }
+
+  PrestamoModel _prestamoFromOnline(Map<String, dynamic> row) {
+    return PrestamoModel(
+      id: OnlineIdMapper.instance.localIdFor(row['id'] as String),
+      clienteId: OnlineIdMapper.instance.localIdFor(row['cliente_id'] as String),
+      monto: (row['monto'] as num).toDouble(),
+      interes: (row['interes'] as num).toDouble(),
+      totalPagar: (row['total_pagar'] as num).toDouble(),
+      cuotas: row['cuotas'] as int,
+      cuotaDiaria: (row['cuota_diaria'] as num).toDouble(),
+      saldo: (row['saldo'] as num).toDouble(),
+      fechaInicio: DateTime.parse(row['fecha_inicio'] as String),
+      fechaFin: row['fecha_fin'] == null
+          ? null
+          : DateTime.parse(row['fecha_fin'] as String),
+      estado: row['estado'] as String? ?? AppEstados.activo,
     );
   }
 }

@@ -123,7 +123,9 @@ class PrestamoRepository {
       final clienteUuid = OnlineIdMapper.instance.uuidFor(clienteId);
       if (clienteUuid != null) query = query.eq('cliente_id', clienteUuid);
       final rows = await query.order('fecha_inicio', ascending: false);
-      return rows.map<PrestamoModel>(_fromOnline).toList();
+      final prestamos = rows.map<PrestamoModel>(_fromOnline).toList();
+      await _cachePrestamos(prestamos);
+      return prestamos;
     }
 
     final db = await _db;
@@ -152,7 +154,9 @@ class PrestamoRepository {
           .select()
           .inFilter('cliente_id', clienteIds)
           .order('fecha_inicio', ascending: false);
-      return rows.map<PrestamoModel>(_fromOnline).toList();
+      final prestamos = rows.map<PrestamoModel>(_fromOnline).toList();
+      await _cachePrestamos(prestamos);
+      return prestamos;
     }
 
     final db = await _db;
@@ -183,7 +187,9 @@ class PrestamoRepository {
           .select()
           .inFilter('estado', [AppEstados.activo, AppEstados.atrasado])
           .order('fecha_inicio', ascending: false);
-      return rows.map<PrestamoModel>(_fromOnline).toList();
+      final prestamos = rows.map<PrestamoModel>(_fromOnline).toList();
+      await _cachePrestamos(prestamos);
+      return prestamos;
     }
 
     final db = await _db;
@@ -222,7 +228,9 @@ class PrestamoRepository {
           .eq('id', uuid)
           .maybeSingle();
       if (row == null) return null;
-      return _fromOnline(row);
+      final prestamo = _fromOnline(row);
+      await _cachePrestamos([prestamo]);
+      return prestamo;
     }
 
     final db = await _db;
@@ -411,5 +419,29 @@ class PrestamoRepository {
           : DateTime.parse(row['fecha_fin'] as String),
       estado: row['estado'] as String? ?? AppEstados.activo,
     );
+  }
+
+  Future<void> _cachePrestamos(List<PrestamoModel> prestamos) async {
+    if (prestamos.isEmpty) return;
+    final db = await _db;
+    for (final prestamo in prestamos) {
+      final id = prestamo.id;
+      if (id == null) continue;
+      try {
+        await db.insert(
+          DatabaseTables.prestamos,
+          prestamo.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        await db.update(
+          DatabaseTables.prestamos,
+          prestamo.toMap(),
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      } on DatabaseException {
+        // Si el cliente todavia no esta cacheado, seguimos mostrando online.
+      }
+    }
   }
 }

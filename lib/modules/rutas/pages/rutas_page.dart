@@ -194,14 +194,20 @@ class _RutaDetallePageState extends State<RutaDetallePage> {
 
   Future<void> _cargar() async {
     setState(() => _cargando = true);
-    final clientes = await _repository.listarClientesRuta(widget.ruta.id!);
-    final reporte = await _repository.reporteRuta(widget.ruta.id!);
-    if (!mounted) return;
-    setState(() {
-      _clientes = clientes;
-      _reporte = reporte;
-      _cargando = false;
-    });
+    try {
+      final clientes = await _repository.listarClientesRuta(widget.ruta.id!);
+      final reporte = await _repository.reporteRuta(widget.ruta.id!);
+      if (!mounted) return;
+      setState(() {
+        _clientes = clientes;
+        _reporte = reporte;
+        _cargando = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _cargando = false);
+      _mostrarError(error);
+    }
   }
 
   Future<void> _agregarCliente() async {

@@ -1,6 +1,9 @@
+import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/database/database_helper.dart';
+import '../../../core/database/database_tables.dart';
 import '../../../core/services/supabase_service.dart';
 import '../../../core/session/session_manager.dart';
 import '../models/auth_profile.dart';
@@ -59,6 +62,7 @@ class AuthService {
 
     final profile = await _loadProfileForUser(user);
     SessionManager.instance.iniciarSesion(profile);
+    await _cacheProfile(profile);
     return profile;
   }
 
@@ -85,6 +89,7 @@ class AuthService {
       }
 
       SessionManager.instance.iniciarSesion(profile);
+      await _cacheProfile(profile);
       return profile;
     } on AuthFailure {
       rethrow;
@@ -140,6 +145,7 @@ class AuthService {
 
       final profile = await _loadProfileForUser(user);
       SessionManager.instance.iniciarSesion(profile);
+      await _cacheProfile(profile);
       return profile;
     } on AuthFailure {
       rethrow;
@@ -202,5 +208,24 @@ class AuthService {
     if (!profile.esSuperadmin && profile.companyId == null) {
       throw const AuthFailure('El usuario no tiene empresa asignada.');
     }
+  }
+
+  Future<void> _cacheProfile(AuthProfile profile) async {
+    final usuario = profile.toLegacyUsuario();
+    final id = usuario.id;
+    if (id == null) return;
+
+    final db = await DatabaseHelper.instance.database;
+    await db.insert(
+      DatabaseTables.usuarios,
+      usuario.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    );
+    await db.update(
+      DatabaseTables.usuarios,
+      usuario.toMap(),
+      where: 'id = ?',
+      whereArgs: [id],
+    );
   }
 }

@@ -318,6 +318,16 @@ class DashboardRepository {
         .select('id, rol, estado')
         .eq('rol', AppRoles.cobrador)
         .eq('estado', AppEstados.activo);
+    final empresaId = SessionManager.instance.perfilActual?.companyId;
+    dynamic capitalQuery = SupabaseService.requireClient
+        .from('capital_general')
+        .select('capital_disponible')
+        .eq('estado', 'activo');
+    if (empresaId != null) capitalQuery = capitalQuery.eq('empresa_id', empresaId);
+    final capital = await capitalQuery
+        .order('created_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
 
     return DashboardResumen(
       totalCobradoHoy: totalCobradoHoy,
@@ -327,7 +337,8 @@ class DashboardRepository {
       cobrosPendientes: prestamosActivos,
       clientesAtrasados: clientesAtrasados,
       saldoPendiente: saldoPendiente,
-      capitalDisponible: 0.0,
+      capitalDisponible:
+          (capital?['capital_disponible'] as num?)?.toDouble() ?? 0,
       cajasAbiertas: cajasAbiertas,
       cobradoresActivos: cobradores.length,
     );

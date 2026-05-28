@@ -66,7 +66,9 @@ class ClienteRepository {
       final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
       if (cobradorUuid != null) query = query.eq('cobrador_id', cobradorUuid);
       final rows = await query.order('nombre');
-      return rows.map<ClienteModel>(_fromOnline).toList();
+      final clientes = rows.map<ClienteModel>(_fromOnline).toList();
+      await _cacheClientes(clientes);
+      return clientes;
     }
 
     final db = await _db;
@@ -90,7 +92,9 @@ class ClienteRepository {
       final cobradorUuid = OnlineIdMapper.instance.uuidFor(cobradorId);
       if (cobradorUuid != null) request = request.eq('cobrador_id', cobradorUuid);
       final rows = await request.order('nombre');
-      return rows.map<ClienteModel>(_fromOnline).toList();
+      final clientes = rows.map<ClienteModel>(_fromOnline).toList();
+      await _cacheClientes(clientes);
+      return clientes;
     }
 
     final db = await _db;
@@ -125,7 +129,9 @@ class ClienteRepository {
           .eq('id', uuid)
           .maybeSingle();
       if (row == null) return null;
-      return _fromOnline(row);
+      final cliente = _fromOnline(row);
+      await _cacheClientes([cliente]);
+      return cliente;
     }
 
     final db = await _db;
@@ -281,5 +287,29 @@ class ClienteRepository {
           ? DateTime.now()
           : DateTime.parse(row['created_at'] as String),
     );
+  }
+
+  Future<void> _cacheClientes(List<ClienteModel> clientes) async {
+    if (clientes.isEmpty) return;
+    final db = await _db;
+    for (final cliente in clientes) {
+      final id = cliente.id;
+      if (id == null) continue;
+      try {
+        await db.insert(
+          DatabaseTables.clientes,
+          cliente.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.ignore,
+        );
+        await db.update(
+          DatabaseTables.clientes,
+          cliente.toMap(),
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      } on DatabaseException {
+        // Si falta una relacion local, no bloqueamos la lectura online.
+      }
+    }
   }
 }
